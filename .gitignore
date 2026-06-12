@@ -1,0 +1,46 @@
+# Claude / local tooling
+.claude/
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.python-version
+.venv/
+venv/
+env/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and temp files
+*.log
+*.tmp
+*.pid
+*.md
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Local AI/tooling notes
+.codex/
+AGENTS.md
+
+# Local documents and references
+*.docx
+*.docm
+~$*
+UI/
+citation/
+technical_implementation_plan.md

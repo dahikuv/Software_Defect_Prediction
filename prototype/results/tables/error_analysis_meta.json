@@ -1,0 +1,10 @@
+{
+  "source_final_models": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\final_models_by_dataset.csv",
+  "error_analysis_summary": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\error_analysis_summary.csv",
+  "error_analysis_cases": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\error_analysis_cases.csv",
+  "error_analysis_failures": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\error_analysis_failures.csv",
+  "error_analysis_representative_cases": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\error_analysis_representative_cases.csv",
+  "num_case_rows": 16920,
+  "num_summary_rows": 4,
+  "num_failure_rows": 0
+}

@@ -1,0 +1,13 @@
+dataset_name,split_name,num_rows,num_clean,num_defective,source_file
+cm1,train,348,314,34,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\cm1.csv
+cm1,val,50,45,5,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\cm1.csv
+cm1,test,100,90,10,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\cm1.csv
+jm1,train,7619,6145,1474,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\jm1.arff
+jm1,val,1089,878,211,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\jm1.arff
+jm1,test,2177,1756,421,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\jm1.arff
+kc1,train,1476,1248,228,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\kc1.arff
+kc1,val,211,178,33,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\kc1.arff
+kc1,test,422,357,65,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\kc1.arff
+pc1,train,776,722,54,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\pc1.csv
+pc1,val,111,103,8,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\pc1.csv
+pc1,test,222,207,15,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise\pc1.csv

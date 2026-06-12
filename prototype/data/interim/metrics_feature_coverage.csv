@@ -1,0 +1,5 @@
+dataset_name,source_file,num_rows,num_features,coverage_ratio,available_metrics,missing_metrics,error
+cm1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise + BPD\cm1.csv,498,5,1.0,"loc,v(g),ev(g),iv(g),branchCount",,
+jm1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise + BPD\jm1.csv,13204,5,1.0,"loc,v(g),ev(g),iv(g),branchCount",,
+kc1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise + BPD\kc1.csv,2109,5,1.0,"loc,v(g),ev(g),iv(g),branchCount",,
+pc1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\raw\Promise + BPD\pc1.csv,1109,4,0.8,"loc,v(g),ev(g),branchCount",iv(g),

@@ -1,0 +1,2 @@
+text_branch,num_datasets,num_models,mean_delta_accuracy,mean_delta_precision,mean_delta_recall,mean_delta_f1,mean_delta_auc,num_improved_f1,num_improved_auc
+tfidf,4,12,0.000771122369164943,0.01889890828609676,0.013832551718537473,0.021295852722195623,-0.02423297041894242,5,6

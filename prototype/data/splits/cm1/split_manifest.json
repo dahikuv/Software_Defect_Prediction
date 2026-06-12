@@ -1,0 +1,22 @@
+{
+  "dataset_name": "cm1",
+  "source_file": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\data\\raw\\Promise\\cm1.csv",
+  "id_col": "module_id",
+  "random_seed": 42,
+  "test_size": 0.2,
+  "val_size": 0.1,
+  "stratify_enabled": true,
+  "num_train_rows": 348,
+  "num_val_rows": 50,
+  "num_test_rows": 100,
+  "train_num_clean": 314,
+  "train_num_defective": 34,
+  "val_num_clean": 45,
+  "val_num_defective": 5,
+  "test_num_clean": 90,
+  "test_num_defective": 10,
+  "train_ids_path": "splits/cm1/train_ids.csv",
+  "val_ids_path": "splits/cm1/val_ids.csv",
+  "test_ids_path": "splits/cm1/test_ids.csv",
+  "manifest_hash": "3bc181e9b6d4d3ab56b9643a2730f61107f0375dfff0b87ae26f0026e9b7fb4e"
+}

@@ -1,0 +1,66 @@
+project:
+  name: defect_prediction_prototype
+  random_seed: 42
+
+data:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  splits_dir: data/splits
+  selection:
+    primary_files:
+      - data/raw/Promise/jm1.arff
+      - data/raw/Promise/kc1.arff
+      - data/raw/Promise/cm1.csv
+      - data/raw/Promise/pc1.csv
+    primary_datasets:
+      - jm1
+      - kc1
+      - cm1
+      - pc1
+    supplementary:
+      - eq
+      - jdt
+      - lc
+      - ml
+      - pde
+      - ar1
+      - ar3
+      - ar4
+      - ar5
+      - ar6
+    excluded:
+      - kc2
+      - mw1
+      - pc3
+      - pc4
+      - apache
+      - safe
+      - zxing
+
+features:
+  metrics:
+    - loc
+    - v(g)
+    - ev(g)
+    - iv(g)
+    - branchCount
+  text:
+    tfidf_max_features: 1000
+
+models:
+  candidates:
+    - rf
+    - xgb
+    - lgbm
+
+split:
+  test_size: 0.2
+  stratify: true
+
+explainability:
+  mode: true_shap
+  background_sample_size: 100
+  explain_sample_size: 50
+  enable_plots: false
+  allow_fallback: true

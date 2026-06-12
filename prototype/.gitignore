@@ -1,0 +1,31 @@
+# Python caches and bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.python-version
+.venv/
+venv/
+env/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local runtime artifacts
+*.log
+*.tmp
+*.md
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
+
+# Local assistant/tooling state
+.claude/

@@ -1,0 +1,5 @@
+dataset_name,random_seed,test_size,stratify_enabled,configured_models,configured_metrics_count,configured_metrics,num_rows,num_features,num_clean,num_defective,selected_metrics,missing_metrics,dropped_all_nan_metrics,use_saved_splits
+cm1,42,0.2,True,"rf,xgb,lgbm",5,"loc,v(g),ev(g),iv(g),branchCount",498,5,449,49,"loc,v(g),ev(g),iv(g),branchCount",,,False
+jm1,42,0.2,True,"rf,xgb,lgbm",5,"loc,v(g),ev(g),iv(g),branchCount",13204,5,11101,2103,"loc,v(g),ev(g),iv(g),branchCount",,,False
+kc1,42,0.2,True,"rf,xgb,lgbm",5,"loc,v(g),ev(g),iv(g),branchCount",2109,5,1783,326,"loc,v(g),ev(g),iv(g),branchCount",,,False
+pc1,42,0.2,True,"rf,xgb,lgbm",5,"loc,v(g),ev(g),iv(g),branchCount",1109,4,1032,77,"loc,v(g),ev(g),branchCount",iv(g),,False

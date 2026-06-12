@@ -1,0 +1,5 @@
+dataset_name,num_rows,num_defective,num_clean,num_features,coverage_ratio
+cm1,498,49,449,5,1.0
+jm1,13204,2103,11101,5,1.0
+kc1,2109,326,1783,5,1.0
+pc1,1109,77,1032,4,0.8

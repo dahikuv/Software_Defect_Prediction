@@ -1,0 +1,2 @@
+prototype/data/raw/GHPR_dataset-master/ghprdata.csv filter=lfs diff=lfs merge=lfs -text
+prototype/data/raw/GHPR_dataset-master/ghprdata.sql filter=lfs diff=lfs merge=lfs -text

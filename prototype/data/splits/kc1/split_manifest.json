@@ -1,0 +1,22 @@
+{
+  "dataset_name": "kc1",
+  "source_file": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\data\\raw\\Promise\\kc1.arff",
+  "id_col": "module_id",
+  "random_seed": 42,
+  "test_size": 0.2,
+  "val_size": 0.1,
+  "stratify_enabled": true,
+  "num_train_rows": 1476,
+  "num_val_rows": 211,
+  "num_test_rows": 422,
+  "train_num_clean": 1248,
+  "train_num_defective": 228,
+  "val_num_clean": 178,
+  "val_num_defective": 33,
+  "test_num_clean": 357,
+  "test_num_defective": 65,
+  "train_ids_path": "splits/kc1/train_ids.csv",
+  "val_ids_path": "splits/kc1/val_ids.csv",
+  "test_ids_path": "splits/kc1/test_ids.csv",
+  "manifest_hash": "01d000f3a2b724885129206274733ed8388d2d4577c73e6879af57271ad24c9f"
+}

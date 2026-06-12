@@ -1,0 +1,23 @@
+{
+  "baseline_results_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\results_table.csv",
+  "available_text_branches": {
+    "tfidf": {
+      "results": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\hybrid_tfidf_results.csv",
+      "coverage": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\hybrid_tfidf_feature_coverage.csv"
+    }
+  },
+  "impact_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact.csv",
+  "impact_summary": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact_summary.csv",
+  "impact_deltas": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact_deltas.csv",
+  "impact_improvements": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact_improvements.csv",
+  "branch_summary": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact_branch_summary.csv",
+  "impact_figure": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact_deltas.png",
+  "branch_figure": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\commit_message_impact_branch_means.png",
+  "error_cases_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\error_analysis_cases.csv",
+  "coverage_sources": [
+    {
+      "text_branch": "tfidf",
+      "path": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\hybrid_tfidf_feature_coverage.csv"
+    }
+  ]
+}

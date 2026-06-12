@@ -1,0 +1,25 @@
+{
+  "random_seed": 42,
+  "test_size": 0.2,
+  "val_size": 0.1,
+  "models": [
+    "rf",
+    "xgb",
+    "lgbm"
+  ],
+  "metrics": [
+    "loc",
+    "v(g)",
+    "ev(g)",
+    "iv(g)",
+    "branchCount"
+  ],
+  "datasets": [
+    "cm1",
+    "jm1",
+    "kc1",
+    "pc1"
+  ],
+  "feature_mode": "metrics",
+  "split_source": "phase_6_manifests"
+}

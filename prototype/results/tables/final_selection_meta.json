@@ -1,0 +1,11 @@
+{
+  "source_results_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\results_table.csv",
+  "evaluation_summary": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\evaluation_summary.csv",
+  "best_models_by_dataset": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\best_models_by_dataset.csv",
+  "model_ranking": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\model_ranking.csv",
+  "final_models_by_dataset": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\final_models_by_dataset.csv",
+  "baseline_vs_tuned_comparison": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\baseline_vs_tuned_comparison.csv",
+  "baseline_results_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\baseline_results_table.csv",
+  "tuned_results_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\metrics_tuned_results.csv",
+  "tuned_best_table": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\results\\tables\\metrics_tuned_best.csv"
+}
