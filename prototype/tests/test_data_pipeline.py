@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.app.services.dataset_service import select_commit_text_column
 from src.data.clean import clean_dataset
 from src.data.ingest import build_dataset_inventory, classify_dataset, load_dataset, prepare_dataset_from_raw
 from src.data.split import stratified_split
 from src.data.unify_schema import unify_schema
 from src.data.validate import ensure_non_empty_columns, validate_dataset_schema, validate_required_columns
+from src.features.metrics_features import fit_metrics_feature_spec, transform_metrics_features
 
 
 class IngestTests(unittest.TestCase):
@@ -79,7 +81,21 @@ class DataPipelineTests(unittest.TestCase):
         self.assertListEqual(list(unified["label"]), [1, 0])
         self.assertTrue((unified["commit_text"] == ["Fix bug", "Refactor"]).all())
 
-    def test_clean_dataset_returns_summary_and_imputes_numeric(self) -> None:
+    def test_unify_schema_binarizes_numeric_bug_counts(self) -> None:
+        df = pd.DataFrame({"file": ["m1", "m2", "m3"], "bugs": [0, 2, 5]})
+
+        unified = unify_schema(df, dataset_name="bug_counts.csv")
+
+        self.assertListEqual(list(unified["label"]), [0, 1, 1])
+
+    def test_select_commit_text_column_requires_usable_text(self) -> None:
+        empty_text_df = pd.DataFrame({"commit_text": ["", None, "   "]})
+        populated_text_df = pd.DataFrame({"commit_text": ["", "Fix null handling"]})
+
+        self.assertIsNone(select_commit_text_column(empty_text_df))
+        self.assertEqual(select_commit_text_column(populated_text_df), "commit_text")
+
+    def test_clean_dataset_defers_numeric_imputation(self) -> None:
         df = pd.DataFrame(
             {
                 "module_id": ["a", "a", "b"],
@@ -93,7 +109,20 @@ class DataPipelineTests(unittest.TestCase):
         self.assertEqual(summary["rows_before"], 3)
         self.assertGreaterEqual(summary["exact_duplicates_removed"], 1)
         self.assertEqual(summary["rows_after"], len(cleaned))
-        self.assertTrue(cleaned["loc"].isna().sum() == 0)
+        self.assertEqual(summary["numeric_columns_imputed"], [])
+        self.assertTrue(summary["numeric_imputation_deferred"])
+        self.assertEqual(summary["numeric_columns_with_missing"], ["loc"])
+        self.assertEqual(cleaned["loc"].isna().sum(), 1)
+
+    def test_metric_feature_transform_imputes_from_train_only(self) -> None:
+        train_df = pd.DataFrame({"loc": [10.0, 30.0, None], "label": [0, 1, 0]})
+        test_df = pd.DataFrame({"loc": [None, 1000.0], "label": [1, 0]})
+
+        spec = fit_metrics_feature_spec(train_df, ["loc"])
+        transformed = transform_metrics_features(test_df, spec)
+
+        self.assertEqual(spec.medians["loc"], 20.0)
+        self.assertListEqual(transformed["loc"].tolist(), [20.0, 1000.0])
 
     def test_stratified_split_validates_and_splits(self) -> None:
         df = pd.DataFrame(

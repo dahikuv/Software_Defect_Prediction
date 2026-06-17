@@ -22,6 +22,8 @@ def clean_dataset(
         "module_duplicates_removed": 0,
         "rows_missing_label_removed": 0,
         "numeric_columns_imputed": [],
+        "numeric_columns_with_missing": [],
+        "numeric_imputation_deferred": True,
     }
 
     for col in TEXT_COLUMNS:
@@ -45,14 +47,7 @@ def clean_dataset(
             cleaned["label"] = cleaned["label"].astype(int)
 
     numeric_cols = [col for col in cleaned.select_dtypes(include=["number"]).columns if col != "label"]
-    for col in numeric_cols:
-        if cleaned[col].isna().any():
-            median_value = cleaned[col].median()
-            if pd.isna(median_value):
-                cleaned[col] = cleaned[col].fillna(0)
-            else:
-                cleaned[col] = cleaned[col].fillna(median_value)
-            summary["numeric_columns_imputed"].append(col)
+    summary["numeric_columns_with_missing"] = [col for col in numeric_cols if cleaned[col].isna().any()]
 
     summary["rows_after"] = len(cleaned)
     return (cleaned, summary) if return_summary else cleaned

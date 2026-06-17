@@ -13,6 +13,27 @@ from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Estimator class names for which shap.TreeExplainer is valid.
+_TREE_MODEL_HINTS = (
+    "RandomForest",
+    "ExtraTrees",
+    "DecisionTree",
+    "GradientBoosting",
+    "HistGradientBoosting",
+    "XGB",
+    "LGBM",
+    "LightGBM",
+    "CatBoost",
+)
+
+
+def _is_tree_model(model: Any) -> bool:
+    """Return True when the estimator is a tree ensemble TreeExplainer supports."""
+    if hasattr(model, "get_booster") or hasattr(model, "booster_"):
+        return True
+    class_name = type(model).__name__
+    return any(hint in class_name for hint in _TREE_MODEL_HINTS)
+
 
 def _ensure_output_dir(output_dir: str | Path) -> Path:
     """Create the output directory if needed and return it as a Path."""
@@ -102,11 +123,21 @@ def run_local_shap(
     output_path = _ensure_output_dir(output_dir)
     local_csv = output_path / f"{dataset_name}_{row_label}_shap_local.csv"
 
-    if mode == "true_shap":
+    use_true_shap = mode == "true_shap"
+    if use_true_shap and not _is_tree_model(model):
+        logger.warning(
+            "[%s] model %s is not a supported tree model for TreeExplainer; "
+            "using approximate local contributions instead",
+            dataset_name,
+            type(model).__name__,
+        )
+        use_true_shap = False
+
+    if use_true_shap:
         try:
             local_df = _compute_true_local_shap(model, X_reference, X_row, dataset_name)
             write_csv(local_df, local_csv)
-            return {"local_csv": str(local_csv)}
+            return {"local_csv": str(local_csv), "mode_used": "true_shap"}
         except Exception as exc:
             logger.warning("[%s] true local SHAP failed: %s", dataset_name, exc)
             if not allow_fallback:
@@ -114,7 +145,7 @@ def run_local_shap(
 
     local_df = _compute_approx_local_contributions(model, X_reference, X_row, dataset_name)
     write_csv(local_df, local_csv)
-    return {"local_csv": str(local_csv)}
+    return {"local_csv": str(local_csv), "mode_used": "approx"}
 
 
 __all__ = ["run_local_shap"]

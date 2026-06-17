@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.utils.coercion import coerce_bool
+
 CANONICAL_COMPARISON_COLUMNS = [
     "dataset_name",
     "model",
@@ -32,6 +34,15 @@ def compare_commit_impact(
 
     merged["baseline_feature_family"] = merged.get("feature_family_metrics", "metrics_only")
     merged["hybrid_feature_family"] = merged.get("feature_family_hybrid", "metrics_plus_commit_text")
+    hybrid_uses_column = "uses_commit_text_hybrid" if "uses_commit_text_hybrid" in merged.columns else "uses_commit_text"
+    if "uses_commit_text_metrics" in merged.columns:
+        merged["uses_commit_text_baseline"] = merged["uses_commit_text_metrics"].map(coerce_bool)
+    else:
+        merged["uses_commit_text_baseline"] = False
+    if hybrid_uses_column in merged.columns:
+        merged["uses_commit_text_hybrid"] = merged[hybrid_uses_column].map(coerce_bool)
+    else:
+        merged["uses_commit_text_hybrid"] = False
 
     for metric in ["accuracy", "precision", "recall", "f1", "auc"]:
         metrics_col = f"{metric}_metrics"

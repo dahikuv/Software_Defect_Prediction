@@ -13,6 +13,7 @@ from src.app.services.evaluation_service import (
     list_available_models_for_dataset,
     load_best_models_table,
     load_model_ranking,
+    select_model_row,
     row_to_dict,
 )
 from src.app.services.explainability_service import (
@@ -23,6 +24,8 @@ from src.app.services.explainability_service import (
 )
 from src.app.services.model_service import build_sample_predictions
 from src.app.state import DatasetDashboardState, ExplainabilityArtifacts
+from src.utils.coercion import coerce_bool
+from src.utils.provenance import artifact_uses_commit_text
 
 HYBRID_FEATURE_FAMILIES = {"metrics_plus_commit_text", "metrics_plus_text", "hybrid"}
 
@@ -54,6 +57,8 @@ def _build_dashboard_notes(feature_family: str, commit_text_column: str | None, 
     ]
     if explainability_status.available and not explainability_status.details.get("model_scoped"):
         notes.append("Explainability previews are available, but model-specific linkage is incomplete; dataset-level previews are shown.")
+    if explainability_status.details.get("approximate_shap"):
+        notes.append("At least one explainability artifact used approximate fallback instead of true SHAP.")
     if commit_text_column:
         notes.append(f"Commit-text feature column: {commit_text_column}")
     if feature_family == "metrics_plus_commit_text":
@@ -64,6 +69,8 @@ def _build_dashboard_notes(feature_family: str, commit_text_column: str | None, 
         notes.append(f"Artifact summary reports {metrics_for_ui['num_features']} input features.")
     if metrics_for_ui.get("auc") is not None:
         notes.append(f"Artifact AUC: {metrics_for_ui['auc']}")
+    if metrics_for_ui.get("selection_policy"):
+        notes.append(f"Final-selection policy: {metrics_for_ui['selection_policy']}")
     if configured_hybrid and not commit_text_available:
         notes.append("Commit-text artifacts are configured, but the current sample rows do not expose commit text.")
     return notes
@@ -81,12 +88,9 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
     model_options = list_available_models_for_dataset(dataset_name)
     resolved_model = selected_model or best_model or (model_options[0] if model_options else "")
 
-    selected_row_df = ranking_df[
-        (ranking_df["dataset_name"] == dataset_name) & (ranking_df["model"] == resolved_model)
-    ] if not ranking_df.empty else pd.DataFrame()
-    if selected_row_df.empty and not best_row_df.empty and resolved_model == best_model:
-        selected_row_df = best_row_df.copy()
-    selected_row = selected_row_df.iloc[0] if not selected_row_df.empty else None
+    selected_row = select_model_row(best_row_df, dataset_name, resolved_model)
+    if selected_row is None:
+        selected_row = select_model_row(ranking_df, dataset_name, resolved_model)
 
     ranking_rows_df = ranking_df[ranking_df["dataset_name"] == dataset_name].copy() if not ranking_df.empty else pd.DataFrame()
     if not ranking_rows_df.empty and "rank_within_dataset" in ranking_rows_df.columns:
@@ -95,8 +99,8 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
     best_model_row = row_to_dict(best_row)
     selected_model_row = row_to_dict(selected_row)
     artifact_metadata = get_model_artifact_metadata(dataset_name, resolved_model)
-    best_model_row = {**artifact_metadata, **best_model_row}
-    selected_model_row = {**artifact_metadata, **selected_model_row}
+    best_model_row = {**best_model_row, **artifact_metadata}
+    selected_model_row = {**selected_model_row, **artifact_metadata}
     if best_model_row.get("feature_family") and not best_model_row.get("feature_set"):
         best_model_row["feature_set"] = best_model_row["feature_family"]
     if selected_model_row.get("feature_family") and not selected_model_row.get("feature_set"):
@@ -105,10 +109,10 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
         selected_model_row["commit_text_column"] = selected_model_row["text_feature_column"]
     if best_model_row.get("text_feature_column") and not best_model_row.get("commit_text_column"):
         best_model_row["commit_text_column"] = best_model_row["text_feature_column"]
-    selected_model_row["commit_text_available"] = bool(selected_model_row.get("commit_text_available") or selected_model_row.get("uses_commit_text") or selected_model_row.get("text_feature_column"))
-    best_model_row["commit_text_available"] = bool(best_model_row.get("commit_text_available") or best_model_row.get("uses_commit_text") or best_model_row.get("text_feature_column"))
-    selected_model_row["uses_commit_text"] = bool(selected_model_row.get("uses_commit_text") or selected_model_row.get("commit_text_available"))
-    best_model_row["uses_commit_text"] = bool(best_model_row.get("uses_commit_text") or best_model_row.get("commit_text_available"))
+    selected_model_row["uses_commit_text"] = artifact_uses_commit_text(selected_model_row)
+    best_model_row["uses_commit_text"] = artifact_uses_commit_text(best_model_row)
+    selected_model_row["commit_text_available"] = coerce_bool(selected_model_row.get("commit_text_available")) or selected_model_row["uses_commit_text"]
+    best_model_row["commit_text_available"] = coerce_bool(best_model_row.get("commit_text_available")) or best_model_row["uses_commit_text"]
 
     explainability = build_explainability_artifacts(dataset_name, resolved_model)
     previews = load_model_artifact_previews(dataset_name, resolved_model)
@@ -128,12 +132,10 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
     feature_family = _resolve_feature_family(selected_model_row, metric_summary, dataset_status)
     commit_text_available = bool(
         dataset_status.details.get("commit_text_available", dataset_status.details.get("has_commit_text"))
-        or selected_model_row.get("commit_text_available")
-        or selected_model_row.get("uses_commit_text")
-        or selected_model_row.get("text_feature_column")
-        or best_model_row.get("commit_text_available")
-        or best_model_row.get("uses_commit_text")
-        or best_model_row.get("text_feature_column")
+        or coerce_bool(selected_model_row.get("commit_text_available"))
+        or coerce_bool(selected_model_row.get("uses_commit_text"))
+        or coerce_bool(best_model_row.get("commit_text_available"))
+        or coerce_bool(best_model_row.get("uses_commit_text"))
     )
     dataset_status.details["commit_text_available"] = commit_text_available
     dataset_status.details["has_commit_text"] = commit_text_available
@@ -142,19 +144,20 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
     dataset_status.details["commit_text_available"] = commit_text_available
     dataset_status.details["paper_metric_columns"] = paper_metric_columns
     configured_hybrid = feature_family in HYBRID_FEATURE_FAMILIES
-    if configured_hybrid and not commit_text_available:
+    model_uses_commit_text = artifact_uses_commit_text(selected_model_row) or artifact_uses_commit_text(best_model_row)
+    if configured_hybrid and not model_uses_commit_text:
         feature_family = "metrics_only"
 
     selected_model_row["feature_family"] = feature_family
     selected_model_row.setdefault("feature_set", feature_family)
     selected_model_row["commit_text_available"] = commit_text_available
-    selected_model_row["uses_commit_text"] = bool(selected_model_row.get("uses_commit_text") or commit_text_available)
+    selected_model_row["uses_commit_text"] = artifact_uses_commit_text(selected_model_row)
     selected_model_row["paper_metric_columns"] = paper_metric_columns
     best_model_row["feature_family"] = best_model_row.get("feature_family") or feature_family
     best_model_row.setdefault("feature_set", best_model_row["feature_family"])
     best_model_row["paper_metric_columns"] = paper_metric_columns
     best_model_row["commit_text_available"] = commit_text_available
-    best_model_row["uses_commit_text"] = bool(best_model_row.get("uses_commit_text") or commit_text_available)
+    best_model_row["uses_commit_text"] = artifact_uses_commit_text(best_model_row)
     selected_model_row["artifact_schema_version"] = selected_model_row.get("artifact_schema_version") or metric_summary.get("artifact_schema_version")
     selected_model_row["artifact_stage"] = selected_model_row.get("artifact_stage") or metric_summary.get("artifact_stage")
     selected_model_row["artifact_group_key"] = selected_model_row.get("artifact_group_key") or metric_summary.get("artifact_group_key")
@@ -162,6 +165,9 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
     selected_model_row["source_results_table"] = selected_model_row.get("source_results_table") or metric_summary.get("source_results_table")
 
     metrics_for_ui = {**metric_summary, "feature_family": feature_family}
+    for key in ["selection_policy", "selected_reason"]:
+        if selected_model_row.get(key):
+            metrics_for_ui[key] = selected_model_row[key]
     if commit_text_column:
         metrics_for_ui["text_feature_column"] = commit_text_column
     if paper_metric_columns:
@@ -175,9 +181,9 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
     prediction_status.details["paper_metric_columns"] = paper_metric_columns
     if commit_text_column:
         prediction_status.details.setdefault("text_feature_column", commit_text_column)
-    if configured_hybrid and not commit_text_available:
+    if configured_hybrid and not model_uses_commit_text:
         prediction_status.details["feature_family_fallback"] = "metrics_only"
-        prediction_status.details["feature_family_reason"] = "commit text is not available in the current sample rows"
+        prediction_status.details["feature_family_reason"] = "artifact metadata does not report fitted commit-text features"
 
     explainability_status = build_explainability_status(
         dataset_name=dataset_name,
@@ -198,6 +204,8 @@ def build_dashboard_state(dataset_name: str, selected_model: str | None = None) 
         configured_hybrid=configured_hybrid,
         commit_text_available=commit_text_available,
     )
+    if configured_hybrid and not model_uses_commit_text:
+        notes.append("Artifact metadata does not report fitted commit-text features; this view uses metrics-only behavior.")
     if explanation_mode == "partial" and not explainability_status.details.get("model_scoped"):
         notes.append("Explainability mode is partial because backend artifacts exist but are not fully model-scoped.")
     if explanation_mode == "fallback" and not explainability_status.available:

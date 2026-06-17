@@ -11,8 +11,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 from src.evaluation.compare import build_results_table
+from src.utils.coercion import coerce_bool
 from src.utils.io import read_csv, write_csv, write_json
 from src.utils.logging import get_logger
 from src.utils.paths import RESULTS_TABLES_DIR, ensure_project_dirs
@@ -41,12 +43,53 @@ IMPACT_FIGURE_PATH = RESULTS_TABLES_DIR / "commit_message_impact_deltas.png"
 IMPACT_BRANCH_FIGURE_PATH = RESULTS_TABLES_DIR / "commit_message_impact_branch_means.png"
 
 METRICS = ["accuracy", "precision", "recall", "f1", "auc"]
+IMPACT_COLUMNS = [
+    "dataset_name",
+    "model",
+    "text_branch",
+    "baseline_feature_family",
+    "hybrid_feature_family",
+    "commit_text_source",
+    "uses_commit_text_baseline",
+    "uses_commit_text_hybrid",
+    *[f"delta_{metric}" for metric in METRICS],
+    *[f"relative_delta_{metric}" for metric in METRICS],
+    "improved_f1",
+    "improved_auc",
+]
+IMPACT_SUMMARY_COLUMNS = [
+    "text_branch",
+    "dataset_name",
+    "num_models",
+    "mean_delta_accuracy",
+    "mean_delta_precision",
+    "mean_delta_recall",
+    "mean_delta_f1",
+    "mean_delta_auc",
+    "num_improved_f1",
+    "num_improved_auc",
+]
+BRANCH_SUMMARY_COLUMNS = [
+    "text_branch",
+    "num_datasets",
+    "num_models",
+    "mean_delta_accuracy",
+    "mean_delta_precision",
+    "mean_delta_recall",
+    "mean_delta_f1",
+    "mean_delta_auc",
+    "num_improved_f1",
+    "num_improved_auc",
+]
 
 
 def _load_table(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    df = read_csv(path)
+    try:
+        df = read_csv(path)
+    except EmptyDataError:
+        return pd.DataFrame()
     return build_results_table(df.to_dict("records")) if not df.empty else pd.DataFrame()
 
 
@@ -66,7 +109,17 @@ def _available_text_branches() -> dict[str, pd.DataFrame]:
     for branch_name, paths in TEXT_BRANCH_SOURCES.items():
         results_df = _load_table(paths["results"])
         if not results_df.empty:
-            branches[branch_name] = results_df
+            filtered_df = results_df.copy()
+            if "uses_commit_text" in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df["uses_commit_text"].map(coerce_bool)]
+            feature_count_columns = [column for column in ["tfidf_num_features", "sbert_num_features", "embedding_dim"] if column in filtered_df.columns]
+            if feature_count_columns:
+                has_text_features = pd.Series(False, index=filtered_df.index)
+                for column in feature_count_columns:
+                    has_text_features = has_text_features | (pd.to_numeric(filtered_df[column], errors="coerce").fillna(0) > 0)
+                filtered_df = filtered_df[has_text_features]
+            if not filtered_df.empty:
+                branches[branch_name] = filtered_df
     return branches
 
 
@@ -82,8 +135,18 @@ def _build_comparison_for_branch(baseline_df: pd.DataFrame, branch_name: str, br
     if not key_cols:
         return pd.DataFrame()
 
-    baseline_cols = key_cols + [c for c in METRICS if c in baseline_df.columns]
-    branch_cols = key_cols + [c for c in METRICS if c in branch_df.columns]
+    metadata_cols = [
+        "feature_family",
+        "feature_set",
+        "text_feature_column",
+        "uses_commit_text",
+        "tfidf_num_features",
+        "sbert_num_features",
+        "embedding_dim",
+        "num_commit_features",
+    ]
+    baseline_cols = key_cols + [c for c in METRICS + metadata_cols if c in baseline_df.columns]
+    branch_cols = key_cols + [c for c in METRICS + metadata_cols if c in branch_df.columns]
     baseline = baseline_df[baseline_cols].copy()
     branch = branch_df[branch_cols].copy()
 
@@ -96,8 +159,14 @@ def _build_comparison_for_branch(baseline_df: pd.DataFrame, branch_name: str, br
     merged["hybrid_feature_family"] = merged.get("feature_family_" + branch_name, branch_name)
     if f"text_feature_column_{branch_name}" in merged.columns:
         merged["commit_text_source"] = merged[f"text_feature_column_{branch_name}"]
-    merged["uses_commit_text_baseline"] = merged.get("uses_commit_text_baseline", False)
-    merged["uses_commit_text_hybrid"] = merged.get(f"uses_commit_text_{branch_name}", True)
+    if "uses_commit_text_baseline" in merged.columns:
+        merged["uses_commit_text_baseline"] = merged["uses_commit_text_baseline"].map(coerce_bool)
+    else:
+        merged["uses_commit_text_baseline"] = False
+    if f"uses_commit_text_{branch_name}" in merged.columns:
+        merged["uses_commit_text_hybrid"] = merged[f"uses_commit_text_{branch_name}"].map(coerce_bool)
+    else:
+        merged["uses_commit_text_hybrid"] = False
 
     for metric in METRICS:
         b = f"{metric}_baseline"
@@ -178,6 +247,8 @@ def _plot_impact_deltas(impact_df: pd.DataFrame, output_path: Path) -> None:
     if impact_df.empty:
         return
     try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except Exception as exc:  # pragma: no cover - plotting is optional in minimal envs
         logger.warning("Matplotlib unavailable; skipping impact figure: %s", exc)
@@ -208,6 +279,8 @@ def _plot_branch_means(summary_df: pd.DataFrame, output_path: Path) -> None:
     if summary_df.empty:
         return
     try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except Exception as exc:  # pragma: no cover - plotting is optional in minimal envs
         logger.warning("Matplotlib unavailable; skipping branch-means figure: %s", exc)
@@ -247,6 +320,12 @@ def main() -> None:
 
     branches = _available_text_branches()
     impact_df = _build_all_comparisons(baseline_df, branches)
+    impact_status = "available" if not impact_df.empty else "unsupported_no_valid_commit_text_branch"
+    impact_message = (
+        "Commit-message impact was computed from valid text-feature branches."
+        if impact_status == "available"
+        else "Commit-message impact unavailable because no valid aligned commit-text feature branch was available."
+    )
     summary_df = _summarize_impact(impact_df)
     branch_summary_df = _build_branch_summary(impact_df)
     improvements_df = _build_improvement_table(impact_df)
@@ -254,6 +333,16 @@ def main() -> None:
     delta_columns = ["dataset_name", "model", "text_branch"] + [c for c in impact_df.columns if c.startswith("delta_") or c.startswith("relative_delta_")]
     delta_columns = [c for c in delta_columns if c in impact_df.columns]
     delta_df = impact_df[delta_columns].copy() if not impact_df.empty else impact_df
+    if impact_df.empty and len(impact_df.columns) == 0:
+        impact_df = pd.DataFrame(columns=IMPACT_COLUMNS)
+    if summary_df.empty and len(summary_df.columns) == 0:
+        summary_df = pd.DataFrame(columns=IMPACT_SUMMARY_COLUMNS)
+    if branch_summary_df.empty and len(branch_summary_df.columns) == 0:
+        branch_summary_df = pd.DataFrame(columns=BRANCH_SUMMARY_COLUMNS)
+    if improvements_df.empty and len(improvements_df.columns) == 0:
+        improvements_df = pd.DataFrame(columns=IMPACT_COLUMNS)
+    if delta_df.empty and len(delta_df.columns) == 0:
+        delta_df = pd.DataFrame(columns=["dataset_name", "model", "text_branch", *[f"delta_{metric}" for metric in METRICS], *[f"relative_delta_{metric}" for metric in METRICS]])
 
     write_csv(impact_df, IMPACT_TABLE_PATH)
     write_csv(summary_df, IMPACT_SUMMARY_PATH)
@@ -267,6 +356,10 @@ def main() -> None:
     write_json(
         {
             "baseline_results_table": str(BASELINE_RESULTS_PATH),
+            "impact_status": impact_status,
+            "impact_message": impact_message,
+            "applicable_dataset_family": "commit_level",
+            "applicable_datasets": ["openstack", "qt", "jitfine"],
             "available_text_branches": {
                 branch_name: {
                     "results": str(paths["results"]),
@@ -289,6 +382,9 @@ def main() -> None:
                 if branch_name in branches
             ],
             "artifact_schema_version": "paper-v1",
+            "applicable_dataset_family": "commit_level",
+            "applicable_datasets": ["openstack", "qt", "jitfine"],
+            "scope_note": "Commit-message impact is computed only for commit-level datasets that contain commit_text. PROMISE module-level datasets are excluded by design.",
         },
         IMPACT_META_PATH,
     )
@@ -301,6 +397,8 @@ def main() -> None:
     logger.info("Saved impact figure to %s", IMPACT_FIGURE_PATH)
     logger.info("Saved branch figure to %s", IMPACT_BRANCH_FIGURE_PATH)
     logger.info("Saved impact metadata to %s", IMPACT_META_PATH)
+    if impact_status != "available":
+        logger.warning(impact_message)
 
 
 if __name__ == "__main__":

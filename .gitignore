@@ -3,6 +3,7 @@
 
 # Python caches and environments
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.pyo
 *.pyd
@@ -34,13 +35,27 @@ Thumbs.db
 .streamlit/
 
 # Local AI/tooling notes
+.agents/
 .codex/
 AGENTS.md
+skills-lock.json
 
 # Local documents and references
 *.docx
 *.docm
+*.extracted.txt
 ~$*
 UI/
 citation/
 technical_implementation_plan.md
+
+# Prototype generated artifacts and local reference clones
+prototype/data/raw/
+prototype/data/interim/
+prototype/data/processed/
+prototype/data/splits/
+prototype/models/
+prototype/results/
+prototype/adaboost/
+prototype/sdp/
+prototype/review_diff.patch

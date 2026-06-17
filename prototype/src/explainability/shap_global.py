@@ -16,6 +16,29 @@ from src.utils.logging import get_logger
 matplotlib.use("Agg")
 logger = get_logger(__name__)
 
+# Estimator class names for which shap.TreeExplainer is valid. Covers the
+# tree ensembles used by the project's registry (RandomForest, XGBoost,
+# LightGBM, gradient boosting, and single decision trees).
+_TREE_MODEL_HINTS = (
+    "RandomForest",
+    "ExtraTrees",
+    "DecisionTree",
+    "GradientBoosting",
+    "HistGradientBoosting",
+    "XGB",
+    "LGBM",
+    "LightGBM",
+    "CatBoost",
+)
+
+
+def _is_tree_model(model: Any) -> bool:
+    """Return True when the estimator is a tree ensemble TreeExplainer supports."""
+    if hasattr(model, "get_booster") or hasattr(model, "booster_"):
+        return True
+    class_name = type(model).__name__
+    return any(hint in class_name for hint in _TREE_MODEL_HINTS)
+
 
 def _ensure_output_dir(output_dir: str | Path) -> Path:
     """Create the output directory if needed and return it as a Path."""
@@ -129,6 +152,15 @@ def run_global_shap(
 
     use_true_shap = mode == "true_shap"
 
+    if use_true_shap and not _is_tree_model(model):
+        logger.warning(
+            "[%s] model %s is not a supported tree model for TreeExplainer; "
+            "using approximate importance instead",
+            dataset_name,
+            type(model).__name__,
+        )
+        use_true_shap = False
+
     if use_true_shap:
         try:
             shap_values = _compute_true_shap_values(model, X_background, X_explain, dataset_name)
@@ -139,6 +171,7 @@ def run_global_shap(
             outputs = {
                 "summary_csv": str(summary_csv),
                 "importance_csv": str(importance_path),
+                "mode_used": "true_shap",
             }
             if enable_plots:
                 outputs["plot_path"] = _save_summary_plot(shap_values, X_explain, plot_path)
@@ -155,6 +188,7 @@ def run_global_shap(
     outputs = {
         "summary_csv": str(summary_csv),
         "importance_csv": str(importance_path),
+        "mode_used": "approx",
     }
     if enable_plots:
         outputs["plot_path"] = _save_importance_plot(summary_df, plot_path, summary_df.columns[1])

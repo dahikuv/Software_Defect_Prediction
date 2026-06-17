@@ -18,7 +18,15 @@ def build_tfidf_features(
     max_features: int = 5000,
     ngram_range: tuple[int, int] = (1, 2),
 ) -> Tuple[TfidfVectorizer, pd.DataFrame]:
-    """Fit a TF-IDF vectorizer and return dense feature DataFrame."""
+    """Fit a TF-IDF vectorizer and return dense feature DataFrame.
+
+    WARNING: This fits the vectorizer on whatever ``text_series`` it is given.
+    For modeling, only ever call it on the TRAINING split and reuse the returned
+    vectorizer (via ``.transform``) on val/test. Fitting on a full, un-split
+    dataset leaks test vocabulary and IDF weights into training. The
+    train-only path is ``hybrid_tfidf.fit_hybrid_tfidf_feature_spec``; prefer
+    that for experiments and keep this helper for exploration/EDA only.
+    """
     normalized = normalize_commit_text(text_series)
     usable_mask = normalized.str.split().str.len().fillna(0).gt(0)
     if not usable_mask.any():

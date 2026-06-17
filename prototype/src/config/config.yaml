@@ -9,10 +9,10 @@ data:
   splits_dir: data/splits
   selection:
     primary_files:
-      - data/raw/Promise/jm1.arff
-      - data/raw/Promise/kc1.arff
-      - data/raw/Promise/cm1.csv
-      - data/raw/Promise/pc1.csv
+      - data/raw/Promise + BPD/jm1.csv
+      - data/raw/Promise + BPD/kc1.csv
+      - data/raw/Promise + BPD/cm1.csv
+      - data/raw/Promise + BPD/pc1.csv
     primary_datasets:
       - jm1
       - kc1
@@ -45,14 +45,96 @@ features:
     - ev(g)
     - iv(g)
     - branchCount
+  metrics_by_dataset:
+    openstack:
+      - la
+      - ld
+      - nf
+      - nd
+      - ns
+      - ent
+      - nrev
+      - rtime
+      - hcmt
+      - self
+      - ndev
+      - age
+      - nuc
+      - app
+      - aexp
+      - rexp
+      - arexp
+      - rrexp
+      - asexp
+      - rsexp
+      - asawr
+      - rsawr
+    qt:
+      - la
+      - ld
+      - nf
+      - nd
+      - ns
+      - ent
+      - nrev
+      - rtime
+      - hcmt
+      - self
+      - ndev
+      - age
+      - nuc
+      - app
+      - aexp
+      - rexp
+      - arexp
+      - rrexp
+      - asexp
+      - rsexp
+      - asawr
+      - rsawr
+    jitfine:
+      - la
+      - ld
+      - nf
+      - ns
+      - nd
+      - entropy
+      - ndev
+      - lt
+      - nuc
+      - age
+      - exp
+      - rexp
+      - sexp
   text:
     tfidf_max_features: 1000
+  hybrid:
+    datasets:
+      - ghpr
+      - openstack
+      - qt
+      - jitfine
+    final_selection_excluded:
+      - ghpr
+    use_native_split:
+      openstack: true
+      qt: true
+      jitfine: true
 
 models:
   candidates:
     - rf
     - xgb
     - lgbm
+
+training:
+  cv_folds: 5
+
+evaluation:
+  selection_policy: hybrid_validation_then_tuned
+  significance:
+    bootstrap_iters: 300
+    permutation_iters: 300
 
 split:
   test_size: 0.2
@@ -62,5 +144,5 @@ explainability:
   mode: true_shap
   background_sample_size: 100
   explain_sample_size: 50
-  enable_plots: false
+  enable_plots: true
   allow_fallback: true

@@ -91,8 +91,15 @@ def build_explainability_status(
     selected_model_str = str(selected_model) if selected_model else ""
     model_scoped = any(str(row.get("model", "")) == selected_model_str for row in [*shap_rows, *impact_rows, *error_summary_rows]) if selected_model else False
     available = artifacts.status.available or bool(shap_rows or impact_rows or error_summary_rows)
+    approximate_shap = any(
+        str(row.get("effective_mode", row.get("mode_used", ""))).lower() == "approx"
+        or str(row.get("local_effective_mode", "")).lower() == "approx"
+        for row in shap_rows
+    )
     message = "Explainability artifacts are available."
-    if available and selected_model and not model_scoped:
+    if approximate_shap:
+        message = "Explainability artifacts are available; at least one SHAP artifact used approximate fallback."
+    elif available and selected_model and not model_scoped:
         message = "Explainability artifacts exist, but model-specific linkage is incomplete; showing dataset-level previews."
     elif not available:
         message = "No explainability artifacts were found."
@@ -109,6 +116,7 @@ def build_explainability_status(
             "impact_row_count": len(impact_rows),
             "error_summary_row_count": len(error_summary_rows),
             "available_count": artifacts.status.details.get("available_count", 0),
+            "approximate_shap": approximate_shap,
         },
     )
 

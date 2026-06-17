@@ -55,7 +55,11 @@ def validate_dataset_schema(
 
         numeric = pd.to_numeric(label_series, errors="coerce")
         if numeric.notna().all():
-            unique_values = set(numeric.dropna().astype(int).unique().tolist())
+            non_null = numeric.dropna().astype(float)
+            is_integer_valued = bool(((non_null % 1) == 0).all())
+            if not is_integer_valued:
+                raise ValueError(f"Column '{label_column}' must be binary after normalization")
+            unique_values = set(non_null.astype(int).unique().tolist())
             if not unique_values.issubset({0, 1}):
                 raise ValueError(f"Column '{label_column}' must be binary after normalization")
             return

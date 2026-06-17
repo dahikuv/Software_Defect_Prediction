@@ -10,10 +10,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import pandas as pd
-import yaml
 
+from src.config import load_project_config
 from src.data.clean import clean_dataset
-from src.data.ingest import discover_raw_dataset_files, load_dataset
+from src.data.ingest import discover_raw_dataset_files, load_dataset, primary_dataset_files_from_config
 from src.data.split import (
     build_split_manifest,
     build_split_record,
@@ -27,26 +27,19 @@ from src.data.split import (
 from src.data.unify_schema import unify_schema
 from src.utils.io import write_csv
 from src.utils.logging import get_logger
-from src.utils.paths import CONFIG_PATH, RAW_DATA_DIR, SPLITS_DIR, ensure_project_dirs
+from src.utils.paths import RAW_DATA_DIR, SPLITS_DIR, ensure_project_dirs
 from src.utils.seed import set_global_seed
 
 logger = get_logger(__name__)
-PRIMARY_DATASET_FILES = {
-    (PROJECT_ROOT / "data/raw/Promise/jm1.arff").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise/kc1.arff").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise/cm1.csv").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise/pc1.csv").resolve(),
-}
 INDEX_ROWS: list[dict] = []
 
-
-def load_project_config() -> dict:
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+def primary_dataset_file_set() -> set[Path]:
+    """Return configured primary raw dataset paths."""
+    return {path.resolve() for path in primary_dataset_files_from_config()}
 
 
 def is_primary_dataset(file_path: Path) -> bool:
-    return file_path.resolve() in PRIMARY_DATASET_FILES
+    return file_path.resolve() in primary_dataset_file_set()
 
 
 def discover_primary_dataset_files(raw_files: list[Path]) -> list[Path]:
@@ -109,13 +102,14 @@ def main() -> None:
                 val_size=val_size,
                 stratify_enabled=True,
             )
-            save_split_manifest(manifest, dataset_dir / "split_manifest.json")
+            manifest_path = dataset_dir / "manifest.json"
+            save_split_manifest(manifest, manifest_path)
             INDEX_ROWS.append(
                 {
                     "dataset_name": dataset_name,
                     "source_file": str(file_path),
                     "dataset_dir": str(dataset_dir),
-                    "manifest_path": str(dataset_dir / "split_manifest.json"),
+                    "manifest_path": str(manifest_path),
                     "train_ids_path": str(dataset_dir / "train_ids.csv"),
                     "val_ids_path": str(dataset_dir / "val_ids.csv"),
                     "test_ids_path": str(dataset_dir / "test_ids.csv"),

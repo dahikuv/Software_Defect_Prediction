@@ -13,7 +13,7 @@ import pandas as pd
 
 from src.config import load_project_config
 from src.data.clean import clean_dataset
-from src.data.ingest import discover_raw_dataset_files, load_dataset
+from src.data.ingest import discover_raw_dataset_files, load_dataset, primary_dataset_files_from_config
 from src.data.unify_schema import unify_schema
 from src.features.metrics_features import build_metrics_features, summarize_metric_coverage
 from src.utils.io import write_csv, write_parquet
@@ -22,26 +22,14 @@ from src.utils.paths import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, RAW_DATA_DIR, 
 
 logger = get_logger(__name__)
 
-PRIMARY_DATASET_FILES = {
-    (PROJECT_ROOT / "data/raw/Promise + BPD/jm1.csv").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise + BPD/kc1.csv").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise + BPD/cm1.csv").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise + BPD/pc1.csv").resolve(),
-}
-
-LEGACY_PRIMARY_DATASET_FILES = {
-    (PROJECT_ROOT / "data/raw/Promise/jm1.arff").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise/kc1.arff").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise/cm1.csv").resolve(),
-    (PROJECT_ROOT / "data/raw/Promise/pc1.csv").resolve(),
-}
-
-ALL_PRIMARY_DATASET_FILES = PRIMARY_DATASET_FILES | LEGACY_PRIMARY_DATASET_FILES
+def primary_dataset_file_set() -> set[Path]:
+    """Return configured primary raw dataset paths."""
+    return {path.resolve() for path in primary_dataset_files_from_config()}
 
 
 def is_primary_dataset(file_path: Path) -> bool:
     """Return True when a raw file is one of the baseline datasets."""
-    return file_path.resolve() in ALL_PRIMARY_DATASET_FILES
+    return file_path.resolve() in primary_dataset_file_set()
 
 
 def discover_primary_dataset_files(raw_files: list[Path]) -> list[Path]:

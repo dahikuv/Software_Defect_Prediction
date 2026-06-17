@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pandas as pd
 
-GHPR_TEXT_COLUMNS = ["COMMIT_DESCRIPTION", "PR_TITLE", "PR_DESCRIPTION", "DIFF_CODE", "PROJECT_DESCRIPTION", "PROJECT_LABEL"]
+# GHPR text columns used to compose commit_text. We deliberately omit
+# DIFF_CODE (source diffs leak filename/identifier tokens that match
+# the bug fix pair) and PROJECT_DESCRIPTION/PROJECT_LABEL (per-project
+# constants behave like project IDs). The diff content is preserved
+# separately by the GHPR adapter via a dedicated diff_text column.
+GHPR_TEXT_COLUMNS = ["COMMIT_DESCRIPTION", "PR_TITLE", "PR_DESCRIPTION"]
 
 COLUMN_ALIASES = {
     "label": ["label", "class", "bug", "bugs", "defect", "defects", "is_buggy", "is_defective"],
@@ -22,9 +27,6 @@ COLUMN_ALIASES = {
         "COMMIT_DESCRIPTION",
         "PR_TITLE",
         "PR_DESCRIPTION",
-        "DIFF_CODE",
-        "PROJECT_DESCRIPTION",
-        "PROJECT_LABEL",
     ],
 }
 
@@ -40,6 +42,34 @@ STRING_LABEL_MAP = {
     "defect": 1,
     "nondefective": 0,
 }
+
+# Canonical project names for the McCabe metrics actually consumed by the
+# baseline feature pipeline. Some sources (e.g. pc1 from "Promise + BPD")
+# expose iv(G) with an upper-case G; the pipeline expects the lower-case
+# variant. We deliberately do NOT lower-case unrelated Halstead columns so
+# tests and ad-hoc analyses that rely on their original casing keep working.
+CANONICAL_MCCABE_METRICS = {
+    "loc": "loc",
+    "v(g)": "v(g)",
+    "ev(g)": "ev(g)",
+    "iv(g)": "iv(g)",
+    "branchcount": "branchCount",
+}
+
+# Datasets that historically lack commit text. Keeping an empty placeholder
+# column was confusing for downstream feature builders, so the unified frame
+# explicitly drops the empty column for these datasets.
+PROMISE_DATASETS_WITHOUT_TEXT = {"cm1", "jm1", "kc1", "pc1"}
+
+def _canonicalize_metric_columns(df: pd.DataFrame) -> pd.DataFrame:
+    rename_map: dict[str, str] = {}
+    for col in df.columns:
+        canonical = CANONICAL_MCCABE_METRICS.get(col.lower())
+        if canonical is not None and col != canonical:
+            rename_map[col] = canonical
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
 
 
 def _find_matching_column(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -67,10 +97,15 @@ def _normalize_label_series(series: pd.Series) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
     if numeric.notna().all():
         values = numeric.astype(float)
-        unique_values = set(values.dropna().astype(int).unique().tolist())
-        if not unique_values.issubset({0, 1}):
-            raise ValueError(f"Could not normalize label values: {sorted(unique_values)}")
-        return values.astype(int)
+        non_null = values.dropna()
+        is_integer_valued = bool(((non_null % 1) == 0).all())
+        if is_integer_valued:
+            unique_values = set(non_null.astype(int).unique().tolist())
+            if unique_values.issubset({0, 1}):
+                return values.astype(int)
+        if (values >= 0).all():
+            return (values > 0).astype(int)
+        raise ValueError(f"Could not normalize label values: {sorted(set(non_null.tolist()))[:10]}")
 
     normalized = series.astype(str).str.strip().str.lower()
     mapped = normalized.map(STRING_LABEL_MAP)
@@ -101,6 +136,7 @@ def unify_schema(
 ) -> pd.DataFrame:
     """Normalize dataset columns to the project standard schema."""
     unified = _rename_to_standard_schema(df)
+    unified = _canonicalize_metric_columns(unified)
 
     if column_map:
         unified = unified.rename(columns=column_map)
@@ -126,5 +162,16 @@ def unify_schema(
 
     if "label" in unified.columns:
         unified["label"] = _normalize_label_series(unified["label"])
+
+    # Use the stem so callers can pass either "pc1" or "pc1.csv" as dataset_name.
+    dataset_stem = Path(dataset_name).stem.strip().lower() if dataset_name else ""
+    if (
+        dataset_stem
+        and dataset_stem in PROMISE_DATASETS_WITHOUT_TEXT
+        and "commit_text" in unified.columns
+    ):
+        text_series = unified["commit_text"].fillna("").astype(str).str.strip()
+        if not text_series.ne("").any():
+            unified = unified.drop(columns=["commit_text"])
 
     return unified

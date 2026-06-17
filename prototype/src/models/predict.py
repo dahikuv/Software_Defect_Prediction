@@ -9,6 +9,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from src.models.bundle import ModelBundle
+
 
 def load_model(path: str | Path):
     """Load a serialized model."""
@@ -42,14 +44,23 @@ def _extract_positive_class_probability(model: Any, X: pd.DataFrame) -> pd.Serie
     return pd.Series(proba_array[:, positive_index], index=X.index, name="probability")
 
 
-def predict_with_model(model: Any, X: pd.DataFrame) -> pd.DataFrame:
+def predict_with_model(model: Any, X: pd.DataFrame, threshold: float | None = None) -> pd.DataFrame:
     """Return predictions and optional probabilities."""
     if X.empty:
         raise ValueError("Prediction input is empty.")
 
+    effective_threshold = threshold
+    if effective_threshold is None and isinstance(model, ModelBundle):
+        effective_threshold = model.decision_threshold
+
     output = pd.DataFrame(index=X.index)
-    output["prediction"] = model.predict(X)
     probability = _extract_positive_class_probability(model, X)
     if probability is not None:
         output["probability"] = probability
+    if effective_threshold is not None and probability is not None:
+        output["prediction"] = (probability >= float(effective_threshold)).astype(int)
+        output["decision_threshold"] = float(effective_threshold)
+    else:
+        output["prediction"] = model.predict(X)
+        output["decision_threshold"] = float("nan")
     return output

@@ -8,8 +8,9 @@ from typing import Any
 import pandas as pd
 
 from src.app.state import StatusMessage
-from src.features.metrics_features import build_commit_text_features
 from src.models.predict import load_model, predict_with_model
+from src.utils.coercion import coerce_float
+from src.utils.provenance import artifact_uses_commit_text
 
 
 def _build_prediction_input(sample_df: pd.DataFrame, feature_columns: list[str]) -> pd.DataFrame:
@@ -43,7 +44,7 @@ def _resolve_feature_columns(
     sample_df: pd.DataFrame,
     metric_columns: list[str],
 ) -> tuple[list[str], pd.DataFrame, dict[str, Any]]:
-    """Resolve feature columns for inference and synthesize commit-text features when needed."""
+    """Resolve feature columns for non-bundled inference."""
     feature_family = _normalize_feature_family(selected_model_row)
     resolved_df = sample_df.copy()
     resolved_metric_columns = [column for column in metric_columns if column in resolved_df.columns]
@@ -58,22 +59,14 @@ def _resolve_feature_columns(
 
     needs_commit_features = feature_family in {"metrics_plus_commit_text", "metrics_plus_text", "hybrid", "commit_text_only"}
     if needs_commit_features:
-        commit_df, commit_meta = build_commit_text_features(resolved_df, return_metadata=True)
-        details["text_feature_column"] = commit_meta.get("text_column") or details["text_feature_column"]
-        details["commit_feature_count"] = int(commit_meta.get("num_features", 0))
-        if not commit_df.empty:
-            commit_df = commit_df.add_prefix("commit_")
-            commit_columns = list(commit_df.columns)
-            resolved_df = pd.concat([resolved_df.reset_index(drop=True), commit_df.reset_index(drop=True)], axis=1)
-            feature_columns.extend(commit_columns)
-            details.update(
-                {
-                    "commit_feature_columns": commit_columns,
-                    "generated_commit_features": True,
-                }
-            )
-        elif feature_family == "commit_text_only":
-            feature_columns = []
+        details.update(
+            {
+                "requires_model_bundle": True,
+                "commit_text_inference_skipped": True,
+                "skip_reason": "Legacy commit-text artifacts need a saved train-fitted text vectorizer; use a ModelBundle artifact.",
+            }
+        )
+        return [], resolved_df, details
 
     if feature_family == "commit_text_only" and details["commit_feature_columns"]:
         feature_columns = list(details["commit_feature_columns"])
@@ -88,8 +81,14 @@ def _extract_metadata(selected_model_row: dict[str, Any]) -> dict[str, Any]:
         "model": selected_model_row.get("model"),
         "feature_family": selected_model_row.get("feature_family") or selected_model_row.get("feature_set") or "metrics_only",
         "text_feature_column": selected_model_row.get("text_feature_column"),
+        "decision_threshold": selected_model_row.get("decision_threshold"),
         "model_path": selected_model_row.get("model_path"),
+        "uses_commit_text": artifact_uses_commit_text(selected_model_row),
     }
+
+
+def _resolve_decision_threshold(selected_model_row: dict[str, Any]) -> float | None:
+    return coerce_float(selected_model_row.get("decision_threshold"), default=None)
 
 
 def build_sample_predictions(
@@ -119,14 +118,30 @@ def build_sample_predictions(
             details=_extract_metadata(selected_model_row),
         )
 
-    if not metric_columns:
+    try:
+        model = load_model(model_path_obj)
+    except Exception as exc:
         return [], StatusMessage(
             available=False,
-            message="Prediction skipped because no metric columns are available.",
-            details=_extract_metadata(selected_model_row),
+            message="Prediction failed while loading the saved model artifact.",
+            details={**_extract_metadata(selected_model_row), "error": str(exc)},
         )
 
-    feature_columns, resolved_df, feature_details = _resolve_feature_columns(selected_model_row, sample_df, metric_columns)
+    if hasattr(model, "transform_features"):
+        bundle_metadata = {**selected_model_row, **(getattr(model, "metadata", {}) or {})}
+        resolved_df = sample_df.copy()
+        feature_columns = list(getattr(model, "feature_columns", []))
+        feature_details = {
+            "feature_family": getattr(model, "feature_family", _normalize_feature_family(selected_model_row)),
+            "metric_feature_columns": [column for column in metric_columns if column in resolved_df.columns],
+            "commit_feature_columns": [column for column in feature_columns if str(column).startswith("commit_")],
+            "generated_commit_features": False,
+            "text_feature_column": selected_model_row.get("text_feature_column"),
+            "uses_commit_text": artifact_uses_commit_text(bundle_metadata),
+            "loaded_model_bundle": True,
+        }
+    else:
+        feature_columns, resolved_df, feature_details = _resolve_feature_columns(selected_model_row, sample_df, metric_columns)
     if not feature_columns:
         return [], StatusMessage(
             available=False,
@@ -135,9 +150,14 @@ def build_sample_predictions(
         )
 
     try:
-        model = load_model(model_path_obj)
-        prediction_input = _build_prediction_input(resolved_df, feature_columns)
-        predictions_df = predict_with_model(model, prediction_input)
+        decision_threshold = _resolve_decision_threshold(selected_model_row)
+        if decision_threshold is None:
+            decision_threshold = getattr(model, "decision_threshold", None)
+        if hasattr(model, "transform_features"):
+            predictions_df = predict_with_model(model, resolved_df, threshold=decision_threshold)
+        else:
+            prediction_input = _build_prediction_input(resolved_df, feature_columns)
+            predictions_df = predict_with_model(model, prediction_input, threshold=decision_threshold)
     except Exception as exc:
         return [], StatusMessage(
             available=False,
@@ -165,6 +185,7 @@ def build_sample_predictions(
             **feature_details,
             "prediction_row_count": int(len(merged_df)),
             "resolved_feature_count": int(len(feature_columns)),
+            "decision_threshold": _resolve_decision_threshold(selected_model_row),
         },
     )
 

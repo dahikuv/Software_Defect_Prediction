@@ -15,7 +15,7 @@ from sklearn.model_selection import train_test_split
 
 from src.config import load_project_config
 from src.data.split import build_split_manifest, save_split_manifest, save_split_ids
-from src.features.metrics_features import build_metrics_features, summarize_metric_coverage
+from src.features.metrics_features import summarize_metric_coverage
 from src.utils.io import read_parquet, write_csv, write_parquet
 from src.utils.logging import get_logger
 from src.utils.paths import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, SPLITS_DIR, ensure_project_dirs
@@ -46,10 +46,30 @@ def discover_cleaned_datasets() -> list[Path]:
 
 
 def build_experiment_frame(cleaned_df: pd.DataFrame, metrics: list[str]) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Attach metrics features to a cleaned dataset and retain key identifiers."""
-    feature_df, metadata = build_metrics_features(cleaned_df, metrics, return_metadata=True)
-    experiment_df = cleaned_df[[col for col in ["module_id", "project_name", "label", "commit_text"] if col in cleaned_df.columns]].copy()
-    experiment_df = pd.concat([experiment_df, feature_df], axis=1)
+    """Build the raw experiment frame without fitting imputers on all rows."""
+    identifier_columns = [col for col in ["module_id", "project_name", "label", "commit_text"] if col in cleaned_df.columns]
+    metric_columns = [col for col in metrics if col in cleaned_df.columns and col not in identifier_columns]
+    experiment_df = cleaned_df[identifier_columns + metric_columns].copy()
+
+    dropped_all_nan_metrics: list[str] = []
+    selected_metrics: list[str] = []
+    for column in metric_columns:
+        series = pd.to_numeric(experiment_df[column], errors="coerce")
+        if series.isna().all():
+            dropped_all_nan_metrics.append(column)
+        else:
+            selected_metrics.append(column)
+
+    metadata = {
+        "configured_metrics": list(metrics),
+        "selected_metrics": selected_metrics,
+        "missing_metrics": [column for column in metrics if column not in cleaned_df.columns],
+        "dropped_all_nan_metrics": dropped_all_nan_metrics,
+        "num_features": int(len(selected_metrics)),
+        "feature_set": "raw_metrics_for_train_fitted_preprocessing",
+        "feature_family": "metrics_only",
+        "imputation_fit_scope": "train_split_only",
+    }
     return experiment_df, metadata
 
 
@@ -169,6 +189,8 @@ def main() -> None:
             "feature_set": "metrics",
             "selected_metrics": ",".join(feature_metadata.get("selected_metrics", [])),
             "missing_metrics": ",".join(feature_metadata.get("missing_metrics", [])),
+            "dropped_all_nan_metrics": ",".join(feature_metadata.get("dropped_all_nan_metrics", [])),
+            "imputation_fit_scope": feature_metadata.get("imputation_fit_scope", "train_split_only"),
             "coverage_ratio": coverage["coverage_ratio"],
             "random_seed": random_seed,
             "test_size": test_size,
@@ -181,6 +203,7 @@ def main() -> None:
             "num_defective": int(experiment_df["label"].value_counts().to_dict().get(1, 0)),
             "num_clean": int(experiment_df["label"].value_counts().to_dict().get(0, 0)),
             "num_features": int(feature_metadata.get("num_features", 0)),
+            "imputation_fit_scope": feature_metadata.get("imputation_fit_scope", "train_split_only"),
             "coverage_ratio": coverage["coverage_ratio"],
         })
 

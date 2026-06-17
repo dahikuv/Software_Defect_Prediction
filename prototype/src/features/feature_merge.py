@@ -43,13 +43,33 @@ def merge_feature_sets(
         if block.empty:
             continue
 
-        can_merge_on_module = "module_id" in merged.columns and "module_id" in block.columns
-        if can_merge_on_module:
-            merged = merged.merge(block, on=[key for key in MERGE_KEY_CANDIDATES if key in merged.columns and key in block.columns], how="left")
+        if "module_id" in merged.columns and "module_id" in block.columns:
+            block_for_merge = block.drop(
+                columns=[key for key in MERGE_KEY_CANDIDATES if key != "module_id" and key in block.columns],
+                errors="ignore",
+            )
+            if block_for_merge["module_id"].duplicated().any():
+                raise ValueError(
+                    "Feature block has duplicate 'module_id' values; a left merge would "
+                    "fan out and duplicate base rows. Deduplicate the feature block first."
+                )
+            n_before = len(merged)
+            merged = merged.merge(block_for_merge, on="module_id", how="left")
+            if len(merged) != n_before:
+                raise ValueError(
+                    f"Row count changed during module_id merge ({n_before} -> {len(merged)}); "
+                    "merge keys are not unique."
+                )
             continue
 
-        block_indexed = block.reset_index(drop=True)
-        merged = pd.concat([merged.reset_index(drop=True), block_indexed], axis=1)
+        if len(block) != len(merged):
+            raise ValueError(
+                f"Cannot align feature block by position: base has {len(merged)} rows "
+                f"but block has {len(block)} rows, and no shared 'module_id' key is available."
+            )
+        block_indexed = block.copy()
+        block_indexed.index = merged.index
+        merged = pd.concat([merged, block_indexed], axis=1)
 
     merged = merged.loc[:, ~merged.columns.duplicated()]
     return merged

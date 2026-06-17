@@ -4,6 +4,7 @@ import unittest
 
 import pandas as pd
 
+from src.evaluation.error_analysis import build_error_analysis_frame, select_representative_cases
 from src.features.commit_sbert import build_sbert_features
 from src.features.commit_tfidf import build_tfidf_features, normalize_commit_text
 from src.features.feature_merge import merge_feature_sets
@@ -67,6 +68,36 @@ class FeatureMergeTests(unittest.TestCase):
         merged = merge_feature_sets(base_df, metrics_df, text_df)
         self.assertListEqual(list(merged.columns), ["module_id", "metric_loc", "commit_tfidf_a"])
         self.assertEqual(len(merged), 2)
+
+    def test_merge_feature_sets_uses_module_id_without_project_name_drift(self) -> None:
+        base_df = pd.DataFrame({"module_id": ["m1"], "project_name": ["base_project"]})
+        metrics_df = pd.DataFrame({"module_id": ["m1"], "project_name": ["metric_project"], "loc": [10]})
+
+        merged = merge_feature_sets(base_df, metrics_df=metrics_df)
+
+        self.assertEqual(merged.loc[0, "metric_loc"], 10)
+        self.assertIn("project_name", merged.columns)
+        self.assertNotIn("project_name_x", merged.columns)
+        self.assertNotIn("project_name_y", merged.columns)
+
+class ErrorAnalysisTests(unittest.TestCase):
+    def test_select_representative_cases_returns_correct_and_incorrect_groups(self) -> None:
+        df = pd.DataFrame(
+            {
+                "module_id": [f"m{i}" for i in range(12)],
+                "label": [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+                "prediction": [1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0],
+                "probability": [0.9, 0.1, 0.8, 0.2, 0.7, 0.9, 0.1, 0.8, 0.2, 0.3, 0.6, 0.4],
+            }
+        )
+        analysis = build_error_analysis_frame(df)
+
+        selected = select_representative_cases(analysis, top_k=3)
+
+        self.assertLessEqual((selected["representative_group"] == "correct").sum(), 3)
+        self.assertLessEqual((selected["representative_group"] == "incorrect").sum(), 3)
+        self.assertIn("correct", set(selected["representative_group"]))
+        self.assertIn("incorrect", set(selected["representative_group"]))
 
 
 if __name__ == "__main__":

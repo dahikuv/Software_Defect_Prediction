@@ -14,10 +14,27 @@ from typing import Any
 
 import pandas as pd
 
-from src.app.services.dataset_service import DEFAULT_METRICS
+import json
+import subprocess
+import tempfile
+import shutil
+
+import joblib
+import numpy as np
+
+from src.app.services.dataset_service import DEFAULT_METRICS, MODULE_LEVEL_DATASETS
 from src.app.services.evaluation_service import load_best_models_table, row_to_dict
 from src.app.services.model_service import build_sample_predictions
 from src.app.state import AnalysisResultRow, AnalysisResultState, StatusMessage
+from src.utils.logging import get_logger
+from src.utils.paths import MODELS_DIR
+
+logger = get_logger(__name__)
+
+MAX_TEXT_FILE_BYTES = 1_000_000
+MAX_ARCHIVE_TOTAL_BYTES = 10_000_000
+MAX_ARCHIVE_FILES = 500
+MAX_UPLOAD_BYTES = 10_000_000
 
 TEXT_FILE_EXTENSIONS = {
     ".py", ".txt", ".md", ".json", ".csv", ".yaml", ".yml", ".ini", ".toml", ".cfg",
@@ -40,6 +57,18 @@ CONTROL_FLOW_PATTERNS = (
     re.compile(r"\b(if|elif|else|for|while|try|except|with|switch|case|catch)\b", re.IGNORECASE),
     re.compile(r"\b(return|break|continue|raise|throw|yield)\b", re.IGNORECASE),
 )
+BUILD_ARTIFACT_PATTERNS = (
+    re.compile(r"(^|/)node_modules(/|$)", re.IGNORECASE),
+    re.compile(r"(^|/)(dist|build|out|target|coverage|\.next|\.nuxt|\.svelte-kit)(/|$)", re.IGNORECASE),
+    re.compile(r"(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|composer\.lock|gemfile\.lock|cargo\.lock)$", re.IGNORECASE),
+    re.compile(r"\.min\.(js|css|mjs|cjs)$", re.IGNORECASE),
+    re.compile(r"\.bundle\.(js|css|mjs|cjs)$", re.IGNORECASE),
+    re.compile(r"\.map$", re.IGNORECASE),
+)
+
+def _is_build_artifact(snapshot: "FileSnapshot") -> bool:
+    path = snapshot.path.replace("\\", "/")
+    return any(pattern.search(path) for pattern in BUILD_ARTIFACT_PATTERNS)
 
 
 def _path_has_low_priority_hint(normalized_path: str) -> bool:
@@ -63,6 +92,14 @@ class FileSnapshot:
     size: int
     extension: str
     is_binary: bool = False
+
+
+@dataclass
+class ProjectSource:
+    source_type: str
+    display_name: str
+    snapshots: list[FileSnapshot]
+    notes: list[str]
 
 
 @dataclass
@@ -102,6 +139,8 @@ def _decode_text(name: str, raw: bytes, prefix: str) -> FileSnapshot:
     suffix = Path(name).suffix.lower()
     if suffix not in TEXT_FILE_EXTENSIONS:
         return FileSnapshot(path=f"{prefix}/{name}", name=name, text="", line_count=0, size=len(raw), extension=suffix, is_binary=True)
+    if len(raw) > MAX_TEXT_FILE_BYTES:
+        return FileSnapshot(path=f"{prefix}/{name}", name=name, text="", line_count=0, size=len(raw), extension=suffix, is_binary=True)
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
@@ -117,18 +156,33 @@ def _extract_zip(name: str, raw: bytes) -> tuple[list[FileSnapshot], list[str], 
     snapshots: list[FileSnapshot] = []
     notes: list[str] = []
     excluded_files: list[str] = []
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return [], [f"Uploaded archive is too large for analysis; limit is {MAX_UPLOAD_BYTES} bytes."], []
     try:
         with zipfile.ZipFile(BytesIO(raw)) as archive:
+            analyzed_files = 0
+            total_uncompressed = 0
             for member in archive.infolist():
                 if member.is_dir():
                     continue
+                if analyzed_files >= MAX_ARCHIVE_FILES:
+                    notes.append(f"Stopped after {MAX_ARCHIVE_FILES} supported files to keep analysis bounded.")
+                    break
                 member_path = member.filename
                 suffix = Path(member_path).suffix.lower()
                 if suffix not in TEXT_FILE_EXTENSIONS:
                     continue
+                total_uncompressed += int(member.file_size)
+                if member.file_size > MAX_TEXT_FILE_BYTES:
+                    notes.append(f"Skipped oversized file in archive: {member_path}")
+                    continue
+                if total_uncompressed > MAX_ARCHIVE_TOTAL_BYTES:
+                    notes.append(f"Stopped archive extraction after {MAX_ARCHIVE_TOTAL_BYTES} uncompressed bytes.")
+                    break
                 try:
                     data = archive.read(member)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to read uploaded archive member %s: %s", member_path, exc)
                     continue
                 snapshot = _decode_text(member_path, data, prefix=name)
                 snapshot.path = f"{name}:{member_path}"
@@ -136,6 +190,7 @@ def _extract_zip(name: str, raw: bytes) -> tuple[list[FileSnapshot], list[str], 
                     excluded_files.append(snapshot.path)
                     continue
                 snapshots.append(snapshot)
+                analyzed_files += 1
     except zipfile.BadZipFile:
         notes.append("Uploaded archive is not a valid zip file.")
     if excluded_files:
@@ -145,18 +200,26 @@ def _extract_zip(name: str, raw: bytes) -> tuple[list[FileSnapshot], list[str], 
 
 def _extract_github_owner_repo(repo_url: str) -> tuple[str, str] | None:
     parsed = urllib.parse.urlparse(repo_url.strip())
-    if "github.com" not in parsed.netloc.lower():
+    if parsed.scheme != "https":
+        return None
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"github.com", "www.github.com"}:
         return None
     parts = [part for part in parsed.path.strip("/").split("/") if part]
     if len(parts) < 2:
         return None
-    return parts[0], parts[1].removesuffix(".git")
+    owner = parts[0]
+    repo = parts[1].removesuffix(".git")
+    safe_segment = re.compile(r"^[A-Za-z0-9_.-]+$")
+    if not safe_segment.match(owner) or not safe_segment.match(repo):
+        return None
+    return owner, repo
 
 
 def _download_github_zip(repo_url: str) -> tuple[list[FileSnapshot], list[str], str, list[str]]:
     owner_repo = _extract_github_owner_repo(repo_url)
     if not owner_repo:
-        return [], ["Only GitHub repository URLs are supported for direct download."], repo_url, []
+        return [], ["Only HTTPS GitHub repository URLs are supported for direct download."], repo_url, []
 
     owner, repo = owner_repo
     source_label = f"{owner}/{repo}"
@@ -167,7 +230,8 @@ def _download_github_zip(repo_url: str) -> tuple[list[FileSnapshot], list[str], 
     try:
         with urllib.request.urlopen(zip_url, timeout=30) as response:
             raw = response.read()
-    except Exception:
+    except Exception as exc:
+        logger.debug("Failed to download GitHub main archive %s: %s", zip_url, exc)
         zip_url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/master"
         notes.append("Main branch archive failed; retrying master.")
         try:
@@ -179,9 +243,14 @@ def _download_github_zip(repo_url: str) -> tuple[list[FileSnapshot], list[str], 
     snapshots: list[FileSnapshot] = []
     try:
         with zipfile.ZipFile(BytesIO(raw)) as archive:
+            analyzed_files = 0
+            total_uncompressed = 0
             for member in archive.infolist():
                 if member.is_dir():
                     continue
+                if analyzed_files >= MAX_ARCHIVE_FILES:
+                    notes.append(f"Stopped after {MAX_ARCHIVE_FILES} supported files to keep analysis bounded.")
+                    break
                 member_path = member.filename
                 if "/" not in member_path:
                     continue
@@ -191,9 +260,17 @@ def _download_github_zip(repo_url: str) -> tuple[list[FileSnapshot], list[str], 
                 suffix = Path(relative_path).suffix.lower()
                 if suffix not in TEXT_FILE_EXTENSIONS:
                     continue
+                total_uncompressed += int(member.file_size)
+                if member.file_size > MAX_TEXT_FILE_BYTES:
+                    notes.append(f"Skipped oversized repository file: {relative_path}")
+                    continue
+                if total_uncompressed > MAX_ARCHIVE_TOTAL_BYTES:
+                    notes.append(f"Stopped repository extraction after {MAX_ARCHIVE_TOTAL_BYTES} uncompressed bytes.")
+                    break
                 try:
                     data = archive.read(member)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to read repository archive member %s: %s", relative_path, exc)
                     continue
                 snapshot = _decode_text(Path(relative_path).name, data, prefix=source_label)
                 snapshot.path = relative_path
@@ -201,6 +278,7 @@ def _download_github_zip(repo_url: str) -> tuple[list[FileSnapshot], list[str], 
                     excluded_files.append(relative_path)
                     continue
                 snapshots.append(snapshot)
+                analyzed_files += 1
     except zipfile.BadZipFile as exc:
         return [], [f"Downloaded archive could not be read: {exc}"], source_label, []
 
@@ -250,33 +328,36 @@ def _score_snapshot(snapshot: FileSnapshot, *, extension_weight: float = 1.0, di
     pattern_hits = set(feature_row.pop("_pattern_hits", set()))
     path_penalty = float(feature_row.pop("_path_penalty", 1.0))
 
-    probability = 0.32
-    probability += min(feature_row["loc"] / 500.0, 0.16)
-    probability += min(feature_row["v(g)"] / 20.0, 0.14)
-    probability += min(feature_row["ev(g)"] / 20.0, 0.08)
-    probability += min(feature_row["iv(g)"] / 20.0, 0.06)
-    probability += min(feature_row["branchCount"] / 20.0, 0.05)
-    probability += 0.07 * len(pattern_hits)
+    probability = 0.18
+    probability += min(feature_row["loc"] / 800.0, 0.12)
+    probability += min(feature_row["v(g)"] / 60.0, 0.18)
+    probability += min(feature_row["ev(g)"] / 60.0, 0.08)
+    probability += min(feature_row["iv(g)"] / 30.0, 0.04)
+    probability += min(feature_row["branchCount"] / 60.0, 0.06)
+    probability += 0.025 * len(pattern_hits)
 
-    if snapshot.extension in {".py", ".js", ".ts", ".tsx", ".jsx", ".sh", ".ps1"}:
-        probability += 0.08
+    if snapshot.extension in {".py", ".js", ".ts", ".tsx", ".jsx"}:
+        probability += 0.04
     if snapshot.extension in {".json", ".yaml", ".yml", ".toml", ".cfg", ".ini"}:
-        probability += 0.06
+        probability -= 0.05
     if any(hint in normalized_path for hint in SOURCE_DIR_HINTS):
-        probability += 0.08
+        probability += 0.04
     if any(hint in normalized_name for hint in CONFIG_FILE_HINTS):
-        probability += 0.05
+        probability += 0.02
     if _path_has_low_priority_hint(normalized_path):
-        probability -= 0.20
+        probability -= 0.18
     if "/tests/" in normalized_path or normalized_path.startswith("tests/"):
-        probability -= 0.14
+        probability -= 0.12
     if snapshot.line_count == 0:
-        probability = max(probability, 0.58)
+        probability = min(probability, 0.30)
     if len(snapshot.text) > 10000:
-        probability += 0.06
+        probability += 0.04
+    if _is_build_artifact(snapshot):
+        probability = min(probability, 0.20)
     probability *= path_penalty
-    probability = (probability * extension_weight) + (0.02 * directory_weight)
-    probability = max(0.05, min(probability, 0.98))
+    probability += 0.01 * (extension_weight - 1.0)
+    probability += 0.01 * (directory_weight - 1.0)
+    probability = max(0.05, min(probability, 0.92))
 
     reason_bits: list[str] = []
     if snapshot.line_count > 120 or len(snapshot.text) > 4000:
@@ -339,6 +420,8 @@ def _score_project(snapshots: list[FileSnapshot], notes: list[str]) -> list[Risk
         if _is_docs_file(snapshot):
             docs_filtered += 1
             continue
+        if _is_build_artifact(snapshot):
+            continue
         extension = snapshot.extension.lower()
         extension_weight = 1.0
         directory_weight = 1.0
@@ -374,7 +457,136 @@ def _score_project(snapshots: list[FileSnapshot], notes: list[str]) -> list[Risk
         if current is None or row.probability > current.probability:
             deduped[row.path] = row
 
-    return sorted(deduped.values(), key=lambda item: item.probability, reverse=True)[:10]
+    return sorted(deduped.values(), key=lambda item: item.probability, reverse=True)[:15]
+
+
+HYBRID_MODELS_DIR = MODELS_DIR / "hybrid_tfidf"
+
+
+def _extract_git_commit_messages(repo_url: str, snapshots: list["FileSnapshot"]) -> dict[str, str]:
+    """Clone repo shallow, extract latest commit message per file."""
+    owner_repo = _extract_github_owner_repo(repo_url)
+    if not owner_repo:
+        return {}
+
+    owner, repo = owner_repo
+    clone_url = f"https://github.com/{owner}/{repo}.git"
+    commit_map: dict[str, str] = {}
+
+    tmp_dir = tempfile.mkdtemp(prefix="sdp_git_")
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "50", "--single-branch", clone_url, tmp_dir],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return {}
+
+        for snapshot in snapshots:
+            file_path = snapshot.path.replace("\\", "/")
+            try:
+                log_result = subprocess.run(
+                    ["git", "log", "--format=%s", "-n", "5", "--", file_path],
+                    capture_output=True, text=True, timeout=10, cwd=tmp_dir,
+                )
+                if log_result.returncode == 0 and log_result.stdout.strip():
+                    commit_map[file_path] = log_result.stdout.strip()
+            except Exception as exc:
+                logger.debug("Failed to extract git log for %s: %s", file_path, exc)
+                continue
+    except Exception as exc:
+        logger.debug("Failed to clone repository for commit-message extraction: %s", exc)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return commit_map
+
+
+def _load_hybrid_model():
+    """Load the best available hybrid model bundle for live inference."""
+    # Prefer openstack xgb as it has best AUC among hybrid models
+    candidates = [
+        HYBRID_MODELS_DIR / "xgb_openstack.joblib",
+        HYBRID_MODELS_DIR / "lgbm_openstack.joblib",
+        HYBRID_MODELS_DIR / "rf_openstack.joblib",
+        HYBRID_MODELS_DIR / "xgb_qt.joblib",
+        HYBRID_MODELS_DIR / "xgb_jitfine.joblib",
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                bundle = joblib.load(path)
+                if hasattr(bundle, 'preprocessor') and bundle.preprocessor is not None:
+                    return bundle, path.stem
+            except Exception as exc:
+                logger.debug("Failed to load hybrid model candidate %s: %s", path, exc)
+                continue
+    return None, None
+
+
+def _predict_with_hybrid_model(snapshots: list["FileSnapshot"], commit_messages: dict[str, str]) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Use the hybrid metrics+TF-IDF model for commit-aware predictions."""
+    notes: list[str] = []
+    bundle, model_name = _load_hybrid_model()
+    if bundle is None:
+        return {}, ["No hybrid model available; commit message features not used."]
+
+    spec = bundle.preprocessor
+    metrics_list = spec.metrics_spec.selected_metrics
+
+    rows = []
+    for snapshot in snapshots:
+        if _is_docs_file(snapshot) or _is_build_artifact(snapshot):
+            continue
+        feature_row = _build_feature_row(snapshot)
+        file_path = snapshot.path.replace("\\", "/")
+        # Map heuristic metrics to the model's expected metric names
+        row_data = {"module_id": file_path, "label": 0}
+        # Use commit messages from git log as commit_text
+        row_data["commit_text"] = commit_messages.get(file_path, "")
+        # Map our computed metrics
+        metric_mapping = {
+            "loc": feature_row.get("loc", 0),
+            "v(g)": feature_row.get("v(g)", 0),
+            "ev(g)": feature_row.get("ev(g)", 0),
+            "iv(g)": feature_row.get("iv(g)", 0),
+            "branchCount": feature_row.get("branchCount", 0),
+        }
+        for m in metrics_list:
+            row_data[m] = metric_mapping.get(m, 0.0)
+        rows.append(row_data)
+
+    if not rows:
+        return {}, ["No analyzable files for hybrid model."]
+
+    df = pd.DataFrame(rows)
+    has_text = df["commit_text"].str.strip().ne("").sum()
+
+    try:
+        X = spec.transform(df)
+        proba = bundle.predict_proba(X)
+        if hasattr(proba, 'shape') and proba.ndim == 2:
+            pos_proba = proba[:, 1] if proba.shape[1] > 1 else proba[:, 0]
+        else:
+            pos_proba = np.array(proba)
+
+        prediction_map: dict[str, dict[str, Any]] = {}
+        for i, row_data in enumerate(rows):
+            module_id = row_data["module_id"]
+            prediction_map[module_id] = {
+                "module_id": module_id,
+                "probability": float(pos_proba[i]),
+                "prediction": int(pos_proba[i] >= (bundle.decision_threshold or 0.5)),
+                "commit_text_used": bool(row_data.get("commit_text", "").strip()),
+                "commit_text_preview": (row_data.get("commit_text", "")[:80] + "...") if len(row_data.get("commit_text", "")) > 80 else row_data.get("commit_text", ""),
+            }
+
+        notes.append(f"Hybrid model ({model_name}) used: metrics + commit-message TF-IDF features.")
+        notes.append(f"Commit messages found for {has_text}/{len(rows)} files.")
+        return prediction_map, notes
+    except Exception as exc:
+        logger.debug("Hybrid model inference failed: %s", exc)
+        return {}, [f"Hybrid model inference failed: {exc}"]
 
 
 def _predict_with_model_if_possible(snapshots: list[FileSnapshot]) -> tuple[dict[str, dict[str, Any]], list[str]]:
@@ -383,7 +595,11 @@ def _predict_with_model_if_possible(snapshots: list[FileSnapshot]) -> tuple[dict
     if best_df.empty:
         return {}, ["No model table available for live inference; using heuristic scoring."]
 
-    best_row = row_to_dict(best_df.iloc[0])
+    module_level_df = best_df[best_df["dataset_name"].astype(str).isin(MODULE_LEVEL_DATASETS)] if "dataset_name" in best_df.columns else best_df
+    if module_level_df.empty:
+        return {}, ["No module-level model artifact available for file-level inference; using heuristic scoring."]
+
+    best_row = row_to_dict(module_level_df.iloc[0])
     model_path = best_row.get("model_path")
     if not model_path or not Path(model_path).exists():
         return {}, ["No valid model artifact available for live inference; using heuristic scoring."]
@@ -405,6 +621,7 @@ def _predict_with_model_if_possible(snapshots: list[FileSnapshot]) -> tuple[dict
     try:
         predictions, status = build_sample_predictions(selected_row, prediction_input, list(DEFAULT_METRICS))
     except Exception as exc:
+        logger.debug("Model inference failed for live repository analysis: %s", exc)
         return {}, [f"Model inference failed; using heuristic scoring. ({exc})"]
 
     if not status.available or not predictions:
@@ -447,6 +664,16 @@ def _project_from_upload(uploaded_file) -> tuple[ProjectSource, list[str]]:
     if uploaded_file is None:
         return ProjectSource(source_type="upload", display_name="", snapshots=[], notes=[]), []
     raw = uploaded_file.getvalue()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return (
+            ProjectSource(
+                source_type="upload",
+                display_name=uploaded_file.name,
+                snapshots=[],
+                notes=[f"Uploaded file is too large for analysis; limit is {MAX_UPLOAD_BYTES} bytes."],
+            ),
+            [],
+        )
     if uploaded_file.name.lower().endswith(".zip"):
         snapshots, notes, excluded_files = _extract_zip(uploaded_file.name, raw)
         return ProjectSource(source_type="upload", display_name=uploaded_file.name, snapshots=snapshots, notes=notes), excluded_files
@@ -499,14 +726,40 @@ def build_analysis_result(source_text: str, repo_url: str, uploaded_file) -> Ana
     prediction_map, prediction_notes = _predict_with_model_if_possible(snapshots)
     notes.extend(prediction_notes)
 
+    # Attempt hybrid commit-message-aware prediction for repo URLs
+    hybrid_map: dict[str, dict[str, Any]] = {}
+    if repo_url.strip():
+        commit_messages = _extract_git_commit_messages(repo_url, snapshots)
+        if commit_messages:
+            hybrid_map, hybrid_notes = _predict_with_hybrid_model(snapshots, commit_messages)
+            notes.extend(hybrid_notes)
+        else:
+            notes.append("Could not extract commit messages from repository; using metrics-only model.")
+
+    # Prefer hybrid predictions over metrics-only when available
+    effective_map = hybrid_map if hybrid_map else prediction_map
+
     risk_rows = _score_project(snapshots, notes)
-    _apply_model_predictions(risk_rows, prediction_map)
+    _apply_model_predictions(risk_rows, effective_map)
+
+    # Add commit-text signals to risk rows when hybrid was used
+    if hybrid_map:
+        for row in risk_rows:
+            module_id = row.path.replace("\\", "/").lower()
+            pred = hybrid_map.get(module_id) or hybrid_map.get(row.path)
+            if pred and pred.get("commit_text_used"):
+                row.signals = row.signals or []
+                row.signals.append(f"commit_msg: \"{pred.get('commit_text_preview', '')}\"")
+                row.source_type = "hybrid(metrics+commit_text)"
 
     explainability_status = StatusMessage(
-        available=bool(prediction_map),
-        message="Model-backed explanations are partially available." if prediction_map else "Using heuristic explanations only.",
+        available=bool(effective_map),
+        message="Hybrid model (metrics + commit-message TF-IDF) explanations available." if hybrid_map else (
+            "Model-backed explanations are partially available." if prediction_map else "Using heuristic explanations only."
+        ),
         details={
-            "model_predictions_available": bool(prediction_map),
+            "model_predictions_available": bool(effective_map),
+            "hybrid_model_used": bool(hybrid_map),
             "excluded_file_count": len(excluded_files),
         },
     )

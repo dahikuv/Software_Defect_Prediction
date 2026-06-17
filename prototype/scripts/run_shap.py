@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -11,16 +12,19 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import joblib
+import numpy as np
 import pandas as pd
 import yaml
-from sklearn.model_selection import train_test_split
 
+from src.data.split import reconstruct_split_frames
 from src.explainability.shap_global import run_global_shap
 from src.explainability.shap_local import run_local_shap
-from src.features.metrics_features import build_hybrid_training_frame, build_metrics_training_frame
+from src.features.metrics_features import build_metrics_training_frame
+from src.models.bundle import ModelBundle
 from src.utils.io import read_csv, read_parquet, write_csv, write_json
 from src.utils.logging import get_logger
-from src.utils.paths import CONFIG_PATH, PROCESSED_DATA_DIR, RESULTS_FIGURES_DIR, RESULTS_TABLES_DIR, ensure_project_dirs
+from src.utils.paths import CONFIG_PATH, PROCESSED_DATA_DIR, RESULTS_FIGURES_DIR, RESULTS_TABLES_DIR, SPLITS_DIR, ensure_project_dirs
+from src.utils.provenance import artifact_uses_commit_text
 
 logger = get_logger(__name__)
 FINAL_MODELS_PATH = RESULTS_TABLES_DIR / "final_models_by_dataset.csv"
@@ -48,21 +52,49 @@ def load_explainability_config() -> dict[str, Any]:
 
 
 def _normalize_feature_family(row: pd.Series) -> str:
-    return str(row.get("feature_family") or row.get("feature_set") or "metrics_only")
+    for key in ("feature_family", "feature_set"):
+        value = row.get(key)
+        if value is not None and not pd.isna(value) and str(value).strip():
+            return str(value)
+    return "metrics_only"
 
 
-def load_training_frame_for_dataset(row: pd.Series) -> tuple[pd.DataFrame, pd.Series, dict[str, Any]]:
-    """Load and rebuild the training frame that matches the selected model family."""
+JITLINE_DATASETS = {"openstack", "qt", "jitfine"}
+
+def load_saved_split_frames_for_dataset(row: pd.Series) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load train/test split frames for one final-model row."""
     dataset_name = str(row["dataset_name"])
     dataset_path = PROCESSED_DATA_DIR / f"{dataset_name}_clean.parquet"
     df = read_parquet(dataset_path)
+    split_mode = str(row.get("split_mode", "saved_split") or "saved_split")
+    if dataset_name in JITLINE_DATASETS or split_mode == "jitline_native_split":
+        if "jitline_split" not in df.columns:
+            raise ValueError(f"Dataset {dataset_name} is missing the jitline_split column required for the native split.")
+        normalized = df["jitline_split"].astype(str).str.strip().str.lower()
+        train_df = df.loc[normalized == "train"].copy()
+        test_df = df.loc[normalized == "test"].copy()
+        if train_df.empty or test_df.empty:
+            raise ValueError(f"JITLine native split for {dataset_name} produced an empty train or test frame.")
+        return train_df, test_df
+    split_dir = SPLITS_DIR / dataset_name
+    train_df, _, test_df = reconstruct_split_frames(
+        df,
+        split_dir / "train_ids.csv",
+        split_dir / "val_ids.csv",
+        split_dir / "test_ids.csv",
+    )
+    return train_df, test_df
+
+
+def build_feature_frame_for_split(df: pd.DataFrame, row: pd.Series) -> tuple[pd.DataFrame, pd.Series, dict[str, Any]]:
+    """Build a feature frame matching the selected model family."""
     available_metrics = [metric for metric in DEFAULT_METRICS if metric in df.columns]
     feature_family = _normalize_feature_family(row)
 
-    if feature_family in HYBRID_FEATURE_FAMILIES:
-        X, y, metadata = build_hybrid_training_frame(df, available_metrics)
-        metadata["resolved_feature_family"] = "metrics_plus_commit_text"
-        return X, y, metadata
+    if feature_family in HYBRID_FEATURE_FAMILIES or artifact_uses_commit_text(row.to_dict()):
+        raise ValueError(
+            "Legacy commit-text artifact cannot be reconstructed for SHAP without a train-fitted ModelBundle."
+        )
 
     X, y, metadata = build_metrics_training_frame(df, available_metrics)
     metadata["resolved_feature_family"] = "metrics_only"
@@ -77,16 +109,48 @@ def _split_feature_columns(X: pd.DataFrame) -> tuple[list[str], list[str]]:
 
 def _sanitize_feature_names(X: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
     """Convert feature names to SHAP-safe names while preserving a mapping."""
-    rename_map = {
-        column: str(column)
-        .replace("(", "_")
-        .replace(")", "_")
-        .replace(" ", "_")
-        .replace("/", "_")
-        .replace("-", "_")
-        for column in X.columns
-    }
+    rename_map: dict[str, str] = {}
+    used_names: dict[str, int] = {}
+    for column in X.columns:
+        base_name = (
+            str(column)
+            .replace("(", "_")
+            .replace(")", "_")
+            .replace(" ", "_")
+            .replace("/", "_")
+            .replace("-", "_")
+            .strip("_")
+            or "feature"
+        )
+        count = used_names.get(base_name, 0)
+        used_names[base_name] = count + 1
+        rename_map[column] = base_name if count == 0 else f"{base_name}_{count + 1}"
     return X.rename(columns=rename_map), rename_map
+
+def _apply_feature_name_map(X: pd.DataFrame, rename_map: dict[str, str]) -> pd.DataFrame:
+    mapped = X.rename(columns=rename_map)
+    ordered_columns = [rename_map[column] for column in X.columns if column in rename_map]
+    return mapped[ordered_columns].copy()
+
+@contextmanager
+def _temporary_feature_names(model: Any, feature_names: list[str]):
+    original = getattr(model, "feature_names_in_", None)
+    should_patch = original is not None and len(original) == len(feature_names)
+    patched = False
+    if should_patch:
+        try:
+            model.feature_names_in_ = np.asarray(feature_names, dtype=object)
+            patched = True
+        except Exception:
+            patched = False
+    try:
+        yield
+    finally:
+        if patched:
+            try:
+                model.feature_names_in_ = original
+            except Exception:
+                pass
 
 
 def _attach_feature_metadata(record: dict[str, Any], feature_metadata: dict[str, Any], X: pd.DataFrame) -> dict[str, Any]:
@@ -125,7 +189,7 @@ def _build_shap_record(
     dataset_name = str(row["dataset_name"])
     feature_family = _normalize_feature_family(row)
     text_feature_column = str(row.get("text_feature_column", ""))
-    uses_commit_text = bool(row.get("uses_commit_text", feature_family in HYBRID_FEATURE_FAMILIES or bool(text_feature_column)))
+    uses_commit_text = artifact_uses_commit_text({**row.to_dict(), **feature_metadata})
 
     record = {
         "dataset_name": dataset_name,
@@ -139,6 +203,9 @@ def _build_shap_record(
         "artifact_schema_version": str(row.get("artifact_schema_version", "paper-v1")),
         "artifact_stage": "shap",
         "artifact_id": str(row.get("artifact_id", f"{dataset_name}::{row.get('model', '')}::shap")),
+        "decision_threshold": row.get("decision_threshold", ""),
+        "split_mode": row.get("split_mode", "saved_split"),
+        "split_manifest_path": row.get("split_manifest_path", ""),
         "global_summary_csv": global_outputs.get("summary_csv", ""),
         "global_importance_csv": global_outputs.get("importance_csv", ""),
         "global_plot_path": global_outputs.get("plot_path", ""),
@@ -176,64 +243,94 @@ def run_dataset_shap(row: pd.Series, explainability_config: dict[str, Any]) -> d
     model_path = Path(str(row["model_path"]))
 
     mode = explainability_config.get("mode", "true_shap")
+    effective_mode = mode
     background_sample_size = int(explainability_config.get("background_sample_size", 100))
     explain_sample_size = int(explainability_config.get("explain_sample_size", 50))
     enable_plots = bool(explainability_config.get("enable_plots", False))
     allow_fallback = bool(explainability_config.get("allow_fallback", True))
 
-    log_step(dataset_name, f"loading training frame from {dataset_name}_clean.parquet")
-    X, y, feature_metadata = load_training_frame_for_dataset(row)
-    X, rename_map = _sanitize_feature_names(X)
-    log_step(dataset_name, f"full frame rows={len(X)} cols={X.shape[1]}")
+    log_step(dataset_name, f"loading saved train/test split frames from {dataset_name}_clean.parquet")
+    train_df, test_df = load_saved_split_frames_for_dataset(row)
 
-    test_size = float(row.get("test_size", 0.2))
-    random_seed = int(row.get("random_seed", 42))
-    stratify_labels = safe_stratify(y, bool(row.get("stratified_split", True)))
+    log_step(dataset_name, f"loading model from {model_path.name}")
+    loaded_model = joblib.load(model_path)
+    if isinstance(loaded_model, ModelBundle):
+        X_train = loaded_model.transform_features(train_df)
+        X_test = loaded_model.transform_features(test_df)
+        feature_metadata = {
+            "resolved_feature_family": loaded_model.feature_family,
+            "num_features": int(X_train.shape[1]),
+            "bundle_metadata": loaded_model.metadata,
+        }
+        model = loaded_model.estimator
+    else:
+        X_train, _, train_metadata = build_feature_frame_for_split(train_df, row)
+        X_test, _, test_metadata = build_feature_frame_for_split(test_df, row)
+        feature_metadata = {**train_metadata, "test_feature_metadata": test_metadata}
+        model = loaded_model
 
-    log_step(dataset_name, "building train/test frames for explainability")
-    X_train, X_test, _, _ = train_test_split(
-        X,
-        y,
-        test_size=test_size,
-        random_state=random_seed,
-        stratify=stratify_labels,
-    )
+    X_train, rename_map = _sanitize_feature_names(X_train)
+    X_test = _apply_feature_name_map(X_test, rename_map)
+    log_step(dataset_name, f"saved split rows train={len(X_train)} test={len(X_test)} cols={X_train.shape[1]}")
+
     X_background = sample_frame(X_train, background_sample_size)
     X_explain = sample_frame(X_test, explain_sample_size)
     log_step(dataset_name, f"background frame rows={len(X_background)} cols={X_background.shape[1]}")
     log_step(dataset_name, f"explain frame rows={len(X_explain)} cols={X_explain.shape[1]}")
 
-    log_step(dataset_name, f"loading model from {model_path.name}")
-    model = joblib.load(model_path)
     output_dir = RESULTS_FIGURES_DIR / "shap" / dataset_name
     feature_manifest_path = _write_feature_manifest(output_dir, dataset_name, rename_map, feature_metadata)
 
-    log_step(dataset_name, f"running global explainability in mode={mode}")
-    global_outputs = run_global_shap(
-        model=model,
-        X_background=X_background,
-        X_explain=X_explain,
-        output_dir=output_dir,
-        dataset_name=dataset_name,
-        mode=mode,
-        enable_plots=enable_plots,
-        allow_fallback=allow_fallback,
-    )
-    log_step(dataset_name, f"running local explainability in mode={mode}")
-    local_outputs = run_local_shap(
-        model=model,
-        X_reference=X_background,
-        X_row=X_explain.iloc[[0]],
-        output_dir=output_dir,
-        dataset_name=dataset_name,
-        row_label="test_row_0",
-        mode=mode,
-        allow_fallback=allow_fallback,
-    )
+    with _temporary_feature_names(model, list(X_train.columns)):
+        log_step(dataset_name, f"running global explainability in mode={effective_mode}")
+        global_outputs = run_global_shap(
+            model=model,
+            X_background=X_background,
+            X_explain=X_explain,
+            output_dir=output_dir,
+            dataset_name=dataset_name,
+            mode=effective_mode,
+            enable_plots=enable_plots,
+            allow_fallback=allow_fallback,
+        )
+        log_step(dataset_name, f"running local explainability in mode={effective_mode}")
+        local_outputs = run_local_shap(
+            model=model,
+            X_reference=X_background,
+            X_row=X_explain.iloc[[0]],
+            output_dir=output_dir,
+            dataset_name=dataset_name,
+            row_label="test_row_0",
+            mode=effective_mode,
+            allow_fallback=allow_fallback,
+        )
 
     logger.info("Saved SHAP global outputs for %s: %s", dataset_name, global_outputs)
     logger.info("Saved SHAP local outputs for %s: %s", dataset_name, local_outputs)
-    return _build_shap_record(row, model_path, global_outputs, local_outputs, feature_metadata, X, feature_manifest_path)
+    record = _build_shap_record(row, model_path, global_outputs, local_outputs, feature_metadata, X_train, feature_manifest_path)
+    record["requested_mode"] = mode
+    record["effective_mode"] = global_outputs.get("mode_used", effective_mode)
+    record["local_effective_mode"] = local_outputs.get("mode_used", effective_mode)
+    return record
+
+
+def _build_shap_failure_record(row: pd.Series, error: Exception) -> dict[str, Any]:
+    dataset_name = str(row.get("dataset_name", ""))
+    model_name = str(row.get("model", ""))
+    return {
+        "dataset_name": dataset_name,
+        "model": model_name,
+        "model_path": str(row.get("model_path", "")),
+        "feature_family": _normalize_feature_family(row),
+        "feature_set": str(row.get("feature_set", row.get("feature_family", ""))),
+        "text_feature_column": str(row.get("text_feature_column", "")),
+        "uses_commit_text": artifact_uses_commit_text(row.to_dict()),
+        "artifact_schema_version": str(row.get("artifact_schema_version", "paper-v1")),
+        "artifact_stage": "shap",
+        "artifact_id": str(row.get("artifact_id", f"{dataset_name}::{model_name}::shap")),
+        "status": "failed",
+        "error": str(error),
+    }
 
 
 def main() -> None:
@@ -246,7 +343,11 @@ def main() -> None:
     records: list[dict[str, Any]] = []
     for _, row in best_models_df.iterrows():
         logger.info("Running SHAP for dataset=%s using model=%s", row["dataset_name"], row["model"])
-        records.append(run_dataset_shap(row, explainability_config))
+        try:
+            records.append(run_dataset_shap(row, explainability_config))
+        except Exception as exc:
+            logger.exception("SHAP failed for dataset=%s model=%s: %s", row.get("dataset_name"), row.get("model"), exc)
+            records.append(_build_shap_failure_record(row, exc))
 
     summary_df = pd.DataFrame(records)
     write_csv(summary_df, SHAP_SUMMARY_PATH)
