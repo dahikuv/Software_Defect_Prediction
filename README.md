@@ -16,7 +16,6 @@ This project builds a reproducible baseline pipeline for software defect predict
 ```
 prototype/
 ├── data/            # Raw input data and processed data. Do not commit to git.
-├── notebooks/       # Exploratory notebooks.
 ├── src/             # Core source code (main logic).
 │   ├── config/      # Configuration files (config.yaml).
 │   ├── data/        # Ingestion, cleaning, schema unification, and validation.
@@ -34,7 +33,7 @@ prototype/
 
 ## Prerequisites
 - Python 3.10+
-- Git (with Git LFS recommended for large files)
+- Git
 
 ## Setup
 
