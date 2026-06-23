@@ -32,30 +32,56 @@ prototype/
 └── results/         # Evaluation outputs, figures, and tables. Do not commit.
 ```
 
+## Prerequisites
+- Python 3.10+
+- Git (with Git LFS recommended for large files)
+
 ## Setup
-### 1. Create environment
+
+### 1. Clone the repository
+```bash
+git clone https://github.com/dahikuv/Software_Defect_Prediction.git
+cd Software_Defect_Prediction
+```
+
+### 2. Create and activate environment
 ```bash
 python -m venv .venv
-source .venv/Scripts/activate
+source .venv/Scripts/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r prototype/requirements.txt
 ```
 
-On Windows PowerShell:
-```powershell
-.venv\Scripts\Activate.ps1
-```
+### 3. Prepare datasets
+The pipeline expects software defect datasets in CSV format. Place your files in `prototype/data/raw/` directory. The primary datasets used in this project are from the PROMISE repository:
+- `jm1.csv`
+- `kc1.csv`
+- `cm1.csv`
+- `pc1.csv`
 
-### 2. Run the pipeline
+These should be placed in a subdirectory like `prototype/data/raw/Promise + BPD/` (or update `prototype/src/config/config.yaml` to match your file locations).
+
+### 4. Run the pipeline
 ```bash
+# Data preprocessing
 python prototype/scripts/run_data_pipeline.py
+
+# Feature engineering
 python prototype/scripts/run_feature_pipeline.py
+
+# Model training
 python prototype/scripts/run_train_metrics_only.py
+
+# Evaluation
 python prototype/scripts/run_evaluation.py
+
+# Explainability
 python prototype/scripts/run_shap.py
+
+# Error analysis
 python prototype/scripts/run_error_analysis.py
 ```
 
-### 3. Run the demo app
+### 5. Run the demo app
 ```bash
 streamlit run prototype/src/app/streamlit_app.py
 ```
