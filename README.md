@@ -2,9 +2,6 @@
 
 Prototype codebase for the project **Explainable Software Defect Prediction Using Machine Learning and Commit Message Analysis**.
 
-## Project Context
-This project builds a reproducible baseline pipeline for software defect prediction using machine learning. The system handles the entire workflow from data preprocessing, class imbalance handling (e.g., SMOTE over-sampling), to training and evaluating core algorithms (Decision Trees, Random Forest, XGBoost, LightGBM). The goal is to produce highly modular source code that is easy to reuse and extend.
-
 ## Goals
 - Build a reproducible data pipeline for software defect datasets.
 - Engineer features from software metrics and commit messages.
@@ -84,25 +81,6 @@ python prototype/scripts/run_error_analysis.py
 ```bash
 streamlit run prototype/src/app/streamlit_app.py
 ```
-
-## Current Scope
-The repository is focused on the **metrics-based baseline** first, using the `jm1`, `kc1`, `cm1`, and `pc1` datasets from the PROMISE repository. The stable baseline uses `loc`, `v(g)`, `ev(g)`, `iv(g)`, and `branchCount` as primary features.
-
-The foundation covers:
-- Data ingestion, cleaning, schema unification, and validation.
-- Feature engineering from software metrics and commit messages (TF-IDF / SBERT).
-- Model training with hyperparameter tuning (Random Forest, XGBoost, LightGBM).
-- Model evaluation with significance testing and error analysis.
-- SHAP-based global and local explainability.
-- Streamlit demo with saved artifacts.
-
-## Engineering Rules
-- Prefer existing project helpers in `prototype/src/utils/paths.py` and `prototype/src/utils/io.py`.
-- Preserve artifact provenance fields (dataset name, feature family, model path, split manifest).
-- Use type hints and docstrings on all public functions.
-- Separate data processing logic from training algorithms.
-- Validate inputs before entering resource-intensive loops.
-- Use `try-except` for file I/O and data transformation steps.
 
 ## Notes
 - Keep experiment settings in `prototype/src/config/config.yaml`.
