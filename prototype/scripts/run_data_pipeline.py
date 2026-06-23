@@ -21,6 +21,8 @@ from src.utils.logging import get_logger
 from src.utils.paths import INTERIM_DATA_DIR, PROCESSED_DATA_DIR, RAW_DATA_DIR, ensure_project_dirs
 
 logger = get_logger(__name__)
+PIPELINE_DATASET_TIERS = {"primary", "supplementary"}
+IGNORED_RAW_PATH_PARTS = {"_downloads"}
 
 
 def load_metrics_from_config() -> list[str]:
@@ -29,11 +31,37 @@ def load_metrics_from_config() -> list[str]:
     return config.get("features", {}).get("metrics", [])
 
 
+def _is_ignored_raw_path(file_path: Path) -> bool:
+    return any(part.lower() in IGNORED_RAW_PATH_PARTS for part in file_path.parts)
+
+
+def select_raw_files_for_pipeline(raw_dir: Path) -> tuple[list[Path], int]:
+    """Return config-selected raw files for the generic data pipeline."""
+    discovered = discover_raw_dataset_files(raw_dir)
+    selected: list[Path] = []
+    skipped = 0
+    for file_path in discovered:
+        if _is_ignored_raw_path(file_path):
+            skipped += 1
+            continue
+        dataset_tier, _, _, _, _ = classify_dataset_file(file_path)
+        if dataset_tier in PIPELINE_DATASET_TIERS:
+            selected.append(file_path)
+        else:
+            skipped += 1
+    return selected, skipped
+
+
 def main() -> None:
     ensure_project_dirs()
     metrics_columns = load_metrics_from_config()
-    raw_files = discover_raw_dataset_files(RAW_DATA_DIR)
-    logger.info("Discovered %s raw dataset file(s) in %s", len(raw_files), RAW_DATA_DIR)
+    raw_files, skipped_files = select_raw_files_for_pipeline(RAW_DATA_DIR)
+    logger.info(
+        "Selected %s raw dataset file(s) for the generic pipeline in %s; skipped %s non-selected/download file(s).",
+        len(raw_files),
+        RAW_DATA_DIR,
+        skipped_files,
+    )
 
     if not raw_files:
         empty_inventory = pd.DataFrame(
@@ -135,7 +163,6 @@ def main() -> None:
     logger.info("Saved clean summary to %s", clean_summary_path)
 
     logger.info("Data pipeline pass completed.")
-    logger.info("TODO: add dataset-specific adapters for PROMISE/NASA/AEEEM/GitHub edge cases.")
 
 
 if __name__ == "__main__":

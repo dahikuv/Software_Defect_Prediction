@@ -14,7 +14,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config import load_project_config
-from src.evaluation.compare import build_comparison_table, build_results_table, rank_models_by_dataset, select_final_models, summarize_results_table
+from src.evaluation.compare import (
+    SUPPORTED_SELECTION_POLICIES,
+    build_comparison_table,
+    build_results_table,
+    rank_models_by_dataset,
+    select_final_models,
+    summarize_results_table,
+)
 from src.evaluation.evaluate_significance import write_significance_table
 from src.utils.io import read_csv, write_csv, write_json
 from src.utils.logging import get_logger
@@ -122,6 +129,21 @@ def _resolve_final_selection_policy(config: dict[str, Any]) -> str:
     return str(evaluation_cfg.get("selection_policy", FINAL_SELECTION_POLICY))
 
 
+def _validate_evaluation_config(config: dict[str, Any]) -> None:
+    selection_policy = _resolve_final_selection_policy(config)
+    if selection_policy not in SUPPORTED_SELECTION_POLICIES:
+        raise ValueError(
+            f"Unsupported evaluation.selection_policy={selection_policy!r}; "
+            f"expected one of {SUPPORTED_SELECTION_POLICIES}."
+        )
+
+    hybrid_cfg = config.get("features", {}).get("hybrid", {}) or {}
+    for key in ("datasets", "final_selection_excluded"):
+        value = hybrid_cfg.get(key, [])
+        if value is not None and not isinstance(value, list):
+            raise ValueError(f"features.hybrid.{key} must be a list when provided.")
+
+
 def _resolve_final_hybrid_datasets(config: dict[str, Any]) -> set[str]:
     hybrid_cfg = config.get("features", {}).get("hybrid", {}) or {}
     explicit = hybrid_cfg.get("final_selection_datasets")
@@ -190,6 +212,7 @@ def _load_significance_config(config: dict[str, Any] | None = None) -> dict[str,
 def main() -> None:
     ensure_project_dirs()
     config = load_project_config()
+    _validate_evaluation_config(config)
     final_selection_policy = _resolve_final_selection_policy(config)
     final_hybrid_datasets = _resolve_final_hybrid_datasets(config)
     results_path = load_results_table()
