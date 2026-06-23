@@ -81,8 +81,3 @@ python prototype/scripts/run_error_analysis.py
 ```bash
 streamlit run prototype/src/app/streamlit_app.py
 ```
-
-## Notes
-- Keep experiment settings in `prototype/src/config/config.yaml`.
-- Do not commit generated caches, logs, model binaries, raw datasets, or other local artifacts.
-- Run `python -m compileall -q prototype\src prototype\scripts` to verify syntax before pushing.
