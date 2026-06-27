@@ -1,0 +1,5 @@
+dataset_name,source_file,stage,error
+cm1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\processed\cm1_clean.parquet,dataset_loading,The input DataFrame must contain a 'commit_text' column for TF-IDF training.
+jm1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\processed\jm1_clean.parquet,dataset_loading,The input DataFrame must contain a 'commit_text' column for TF-IDF training.
+kc1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\processed\kc1_clean.parquet,dataset_loading,The input DataFrame must contain a 'commit_text' column for TF-IDF training.
+pc1,C:\Users\Dam Hieu\Desktop\CNDM - VIẾT BÁO + KLTN\prototype\data\processed\pc1_clean.parquet,dataset_loading,The input DataFrame must contain a 'commit_text' column for TF-IDF training.

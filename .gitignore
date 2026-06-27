@@ -50,12 +50,16 @@ citation/
 technical_implementation_plan.md
 
 # Prototype generated artifacts and local reference clones
-prototype/data/raw/
+prototype/data/raw/*
+!prototype/data/raw/Promise + BPD/
+!prototype/data/raw/Promise + BPD/**
 prototype/data/interim/
 prototype/data/processed/
 prototype/data/splits/
 prototype/models/
-prototype/results/
+prototype/results/*
+!prototype/results/tables/
+!prototype/results/tables/**
 prototype/adaboost/
 prototype/sdp/
 prototype/review_diff.patch

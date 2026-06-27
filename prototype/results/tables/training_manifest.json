@@ -1,0 +1,110 @@
+{
+  "random_seed": 42,
+  "test_size": 0.2,
+  "val_size": 0.1,
+  "models": [
+    "rf",
+    "xgb",
+    "lgbm"
+  ],
+  "metrics": [
+    "loc",
+    "v(g)",
+    "ev(g)",
+    "iv(g)",
+    "branchCount"
+  ],
+  "metrics_by_dataset": {
+    "openstack": [
+      "la",
+      "ld",
+      "nf",
+      "nd",
+      "ns",
+      "ent",
+      "nrev",
+      "rtime",
+      "hcmt",
+      "self",
+      "ndev",
+      "age",
+      "nuc",
+      "app",
+      "aexp",
+      "rexp",
+      "arexp",
+      "rrexp",
+      "asexp",
+      "rsexp",
+      "asawr",
+      "rsawr"
+    ],
+    "qt": [
+      "la",
+      "ld",
+      "nf",
+      "nd",
+      "ns",
+      "ent",
+      "nrev",
+      "rtime",
+      "hcmt",
+      "self",
+      "ndev",
+      "age",
+      "nuc",
+      "app",
+      "aexp",
+      "rexp",
+      "arexp",
+      "rrexp",
+      "asexp",
+      "rsexp",
+      "asawr",
+      "rsawr"
+    ],
+    "jitfine": [
+      "la",
+      "ld",
+      "nf",
+      "ns",
+      "nd",
+      "entropy",
+      "ndev",
+      "lt",
+      "nuc",
+      "age",
+      "exp",
+      "rexp",
+      "sexp"
+    ]
+  },
+  "datasets": [
+    "cm1",
+    "jm1",
+    "kc1",
+    "pc1",
+    "openstack",
+    "qt",
+    "jitfine"
+  ],
+  "primary_datasets": [
+    "cm1",
+    "jm1",
+    "kc1",
+    "pc1"
+  ],
+  "jitline_datasets": [
+    "openstack",
+    "qt",
+    "jitfine"
+  ],
+  "feature_mode": "metrics_only",
+  "feature_family": "metrics_only",
+  "split_source": "phase_6_manifests_or_jitline_native",
+  "threshold_selection_strategy": "max_recall_with_precision_floor",
+  "threshold_precision_floor": 0.3,
+  "selection_data_source": "validation",
+  "test_metrics_report_only": true,
+  "artifact_schema_version": "paper-v1"
+}

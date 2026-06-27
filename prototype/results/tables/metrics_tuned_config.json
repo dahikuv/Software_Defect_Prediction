@@ -1,0 +1,174 @@
+{
+  "random_seed": 42,
+  "default_metrics": [
+    "loc",
+    "v(g)",
+    "ev(g)",
+    "iv(g)",
+    "branchCount"
+  ],
+  "metrics_by_dataset": {
+    "openstack": [
+      "la",
+      "ld",
+      "nf",
+      "nd",
+      "ns",
+      "ent",
+      "nrev",
+      "rtime",
+      "hcmt",
+      "self",
+      "ndev",
+      "age",
+      "nuc",
+      "app",
+      "aexp",
+      "rexp",
+      "arexp",
+      "rrexp",
+      "asexp",
+      "rsexp",
+      "asawr",
+      "rsawr"
+    ],
+    "qt": [
+      "la",
+      "ld",
+      "nf",
+      "nd",
+      "ns",
+      "ent",
+      "nrev",
+      "rtime",
+      "hcmt",
+      "self",
+      "ndev",
+      "age",
+      "nuc",
+      "app",
+      "aexp",
+      "rexp",
+      "arexp",
+      "rrexp",
+      "asexp",
+      "rsexp",
+      "asawr",
+      "rsawr"
+    ],
+    "jitfine": [
+      "la",
+      "ld",
+      "nf",
+      "ns",
+      "nd",
+      "entropy",
+      "ndev",
+      "lt",
+      "nuc",
+      "age",
+      "exp",
+      "rexp",
+      "sexp"
+    ]
+  },
+  "candidate_models": [
+    "rf",
+    "xgb",
+    "lgbm"
+  ],
+  "parameter_grid": {
+    "rf": [
+      {
+        "n_estimators": 250,
+        "max_depth": 6,
+        "min_samples_split": 8,
+        "min_samples_leaf": 4,
+        "max_features": "sqrt"
+      },
+      {
+        "n_estimators": 300,
+        "max_depth": 8,
+        "min_samples_split": 10,
+        "min_samples_leaf": 5,
+        "max_features": "sqrt"
+      },
+      {
+        "n_estimators": 350,
+        "max_depth": 10,
+        "min_samples_split": 12,
+        "min_samples_leaf": 6,
+        "max_features": "log2"
+      }
+    ],
+    "xgb": [
+      {
+        "n_estimators": 200,
+        "max_depth": 2,
+        "learning_rate": 0.05,
+        "min_child_weight": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 2.0
+      },
+      {
+        "n_estimators": 250,
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_weight": 5,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 3.0
+      },
+      {
+        "n_estimators": 300,
+        "max_depth": 3,
+        "learning_rate": 0.03,
+        "min_child_weight": 5,
+        "subsample": 0.75,
+        "colsample_bytree": 0.75,
+        "reg_lambda": 4.0
+      }
+    ],
+    "lgbm": [
+      {
+        "n_estimators": 200,
+        "num_leaves": 7,
+        "max_depth": 3,
+        "learning_rate": 0.05,
+        "min_child_samples": 20,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 2.0
+      },
+      {
+        "n_estimators": 250,
+        "num_leaves": 15,
+        "max_depth": 4,
+        "learning_rate": 0.05,
+        "min_child_samples": 30,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_lambda": 3.0
+      },
+      {
+        "n_estimators": 300,
+        "num_leaves": 15,
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_samples": 30,
+        "subsample": 0.75,
+        "colsample_bytree": 0.75,
+        "reg_lambda": 4.0
+      }
+    ]
+  },
+  "tuned_models_dir": "C:\\Users\\Dam Hieu\\Desktop\\CNDM - VIẾT BÁO + KLTN\\prototype\\models\\metrics_tuned",
+  "split_mode": "saved_split_or_jitline_native",
+  "cv_folds": 5,
+  "selection_metric": "val_recall_then_val_f1_precision_floor_0.30",
+  "selection_strategy": "best_validation_threshold_candidate_cv_tiebreak",
+  "selection_data_source": "validation_threshold",
+  "threshold_precision_floor": 0.3,
+  "test_metrics_report_only": true
+}
